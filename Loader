@@ -1,0 +1,733 @@
+local Config = {
+	Title = "UnflyProject",
+	Subtitle = "KeySystem",
+	Keys = {},
+	GetKeyUrl = "https://unflytm.vercel.app",
+	ApiUrl = "https://unflytm.vercel.app/api",
+	ScriptUrl = "https://raw.githubusercontent.com/RyzenEngineRb/NeverClouse/refs/heads/main/BwUnwnfq",
+	OnSuccess = nil,
+	SaveKey = true,
+	AutoLogin = true,
+	Folder = "UnflyProject",
+	Neon = Color3.fromRGB(150, 210, 255),
+}
+
+local cloneref = cloneref or function(x) return x end
+local function Service(n) return cloneref(game:GetService(n)) end
+
+local TweenService = Service("TweenService")
+local UIS = Service("UserInputService")
+local Players = Service("Players")
+local ContextActionService = Service("ContextActionService")
+local LocalPlayer = Players.LocalPlayer
+local env = (getgenv and getgenv()) or _G
+
+local IS_MOBILE = (function()
+	local p
+	pcall(function() p = UIS:GetPlatform() end)
+	if p == Enum.Platform.IOS or p == Enum.Platform.Android then return true end
+	return UIS.TouchEnabled and not UIS.KeyboardEnabled
+end)()
+
+local C = {
+	Bg = Color3.fromRGB(10, 10, 12),
+	Field = Color3.fromRGB(22, 22, 26),
+	Line = Color3.fromRGB(52, 52, 58),
+	Text = Color3.fromRGB(238, 238, 241),
+	Dim = Color3.fromRGB(150, 150, 158),
+	Ok = Color3.fromRGB(135, 255, 143),
+	Bad = Color3.fromRGB(255, 102, 105),
+	Warn = Color3.fromRGB(255, 214, 90),
+}
+
+local function New(class, props, kids)
+	local o = Instance.new(class)
+	local parent
+	for k, v in pairs(props or {}) do
+		if k == "Parent" then parent = v else o[k] = v end
+	end
+	for _, c in ipairs(kids or {}) do c.Parent = o end
+	if parent then o.Parent = parent end
+	return o
+end
+
+local function Corner(r) return New("UICorner", { CornerRadius = UDim.new(0, r) }) end
+
+local function Stroke(c, th, tr)
+	return New("UIStroke", { Color = c, Thickness = th or 1, Transparency = tr or 0, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
+end
+
+local function Tw(o, props, t, style, dir)
+	local tw = TweenService:Create(o, TweenInfo.new(t or 0.15, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out), props)
+	tw:Play()
+	return tw
+end
+
+local function Bar(p, cx, cy, w, h, col, rot, r)
+	return New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(cx, cy), Size = UDim2.fromOffset(w, h), Rotation = rot or 0,
+		BackgroundColor3 = col, BorderSizePixel = 0, Parent = p,
+	}, { Corner(r or 1) })
+end
+
+local function Logo(parent, scale)
+	local h = New("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(56, 44), Parent = parent }, { New("UIScale", { Scale = scale or 1 }) })
+	local function arm(cx, rot, w, h2, c1, c2)
+		local b = Bar(h, cx, 22, w, h2, Color3.new(1, 1, 1), rot, 2)
+		New("UIGradient", { Rotation = 90, Color = ColorSequence.new(c1, c2), Parent = b })
+	end
+	arm(17, -20, 9, 42, Color3.fromRGB(250, 250, 252), Color3.fromRGB(105, 105, 114))
+	arm(39, 20, 9, 42, Color3.fromRGB(250, 250, 252), Color3.fromRGB(105, 105, 114))
+	arm(23.5, -20, 4, 30, Color3.fromRGB(150, 150, 158), Color3.fromRGB(60, 60, 66))
+	arm(32.5, 20, 4, 30, Color3.fromRGB(150, 150, 158), Color3.fromRGB(60, 60, 66))
+	return h
+end
+
+local function DrawKey(parent, color)
+	local h = New("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(20, 20), Parent = parent })
+	New("Frame", {
+		BackgroundTransparency = 1, Position = UDim2.fromOffset(1, 5), Size = UDim2.fromOffset(9, 9), Parent = h,
+	}, { New("UICorner", { CornerRadius = UDim.new(1, 0) }), Stroke(color, 1.8, 0) })
+	Bar(h, 13.5, 9.5, 9, 1.8, color, 0, 1)
+	Bar(h, 15.5, 12.2, 1.8, 3.6, color, 0, 1)
+	Bar(h, 18.2, 11.6, 1.8, 2.6, color, 0, 1)
+	return h
+end
+
+local HAS_FS = (writefile and readfile and isfile and isfolder and makefolder) and true or false
+local KEYFILE = Config.Folder .. "/key.txt"
+
+local function Trim(s) return (tostring(s or ""):match("^%s*(.-)%s*$")) end
+
+-- только латиница, цифры и дефис
+local function IsEnglishOnly(key)
+	return key:match("^[%w%-]+$") ~= nil
+end
+
+-- формат сайта: Unfly-Free-xxxxxxxxxxx (11 символов A-Za-z0-9)
+local function MatchesFormat(key)
+	return key:match("^[Uu][Nn][Ff][Ll][Yy]%-[Ff][Rr][Ee][Ee]%-[%w][%w][%w][%w][%w][%w][%w][%w][%w][%w][%w]$") ~= nil
+end
+
+local function HttpGet(url)
+	local req = (syn and syn.request) or (http and http.request) or http_request or request
+	if type(req) == "function" then
+		local ok, res = pcall(req, { Url = url, Method = "GET", Headers = { ["Accept"] = "application/json" } })
+		if ok and type(res) == "table" then
+			return res.Body or res.body
+		end
+	end
+	local ok, body = pcall(function()
+		return game:HttpGet(url)
+	end)
+	if ok then return body end
+	return nil
+end
+
+local function CheckKeyRemote(key)
+	key = Trim(key)
+	if key == "" then
+		return false, "empty"
+	end
+	if not IsEnglishOnly(key) then
+		return false, "bad_chars"
+	end
+	if not MatchesFormat(key) then
+		return false, "format"
+	end
+
+	-- локальный whitelist (если когда-нибудь понадобится)
+	for _, k in ipairs(Config.Keys) do
+		if key == k then return true, "local" end
+	end
+
+	local base = Config.ApiUrl or "https://unflytm.vercel.app/api"
+	local url = base .. "?action=check&key=" .. key:gsub("[^%w%-]", function(c)
+		return string.format("%%%02X", string.byte(c))
+	end)
+
+	local body = HttpGet(url)
+	if type(body) ~= "string" or body == "" then
+		return false, "network"
+	end
+
+	local okFlag = body:find('"ok"%s*:%s*true') ~= nil
+	if okFlag then
+		return true, "remote"
+	end
+	return false, "invalid"
+end
+
+local function IsValid(key)
+	local ok = CheckKeyRemote(key)
+	return ok == true
+end
+
+local function LoadSavedKey()
+	if not (Config.SaveKey and HAS_FS) then return nil end
+	local ok, value = pcall(function()
+		if isfile(KEYFILE) then return readfile(KEYFILE) end
+		return nil
+	end)
+	if ok then return value end
+	return nil
+end
+
+local function SaveKey(key)
+	if not (Config.SaveKey and HAS_FS) then return end
+	pcall(function()
+		if not isfolder(Config.Folder) then makefolder(Config.Folder) end
+		writefile(KEYFILE, Trim(key))
+	end)
+end
+
+local function RunScript()
+	if type(Config.OnSuccess) == "function" then
+		local ok, err = pcall(Config.OnSuccess)
+		if not ok then warn("[UnflyProject] script error: " .. tostring(err)) end
+		return
+	end
+	local url = Config.ScriptUrl
+	if type(url) ~= "string" or url == "" or string.find(url, "USERNAME", 1, true) then
+		warn("[UnflyProject] key accepted, but ScriptUrl is not set. Put your raw script link in Config.ScriptUrl or set Config.OnSuccess.")
+		return
+	end
+	local okGet, src = pcall(function()
+		return game:HttpGet(url)
+	end)
+	if not okGet or type(src) ~= "string" or #src < 10 then
+		warn("[UnflyProject] HttpGet failed for ScriptUrl: " .. tostring(src))
+		return
+	end
+	local ok, err = pcall(function()
+		loadstring(src)()
+	end)
+	if not ok then warn("[UnflyProject] script failed to load: " .. tostring(err)) end
+end
+
+if env.UnflyKeyGui then
+	pcall(function() env.UnflyKeyGui:Destroy() end)
+	env.UnflyKeyGui = nil
+end
+
+if Config.AutoLogin then
+	local saved = LoadSavedKey()
+	if saved and IsValid(saved) then
+		RunScript()
+		return
+	end
+end
+
+local gui = New("ScreenGui", {
+	Name = "UnflyKeySystem", ResetOnSpawn = false, IgnoreGuiInset = true, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 2000,
+})
+local parentOk = pcall(function() gui.Parent = (gethui and gethui()) or Service("CoreGui") end)
+if not parentOk or not gui.Parent then gui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+env.UnflyKeyGui = gui
+
+local BLOCK_NAME = "UnflyKeySystemBlock"
+local function Unblock()
+	pcall(function() ContextActionService:UnbindAction(BLOCK_NAME) end)
+end
+pcall(function()
+	-- Не блокируем Keyboard и MouseButton1 — иначе TextBox/кнопки могут не работать на части executor'ов
+	ContextActionService:BindActionAtPriority(
+		BLOCK_NAME,
+		function() return Enum.ContextActionResult.Sink end,
+		false,
+		5000,
+		Enum.UserInputType.MouseButton2,
+		Enum.UserInputType.MouseButton3,
+		Enum.UserInputType.MouseWheel,
+		Enum.UserInputType.Gamepad1
+	)
+end)
+gui.AncestryChanged:Connect(function(_, parent)
+	if not parent then Unblock() end
+end)
+
+local function Pulse(o, props, t)
+	TweenService:Create(o, TweenInfo.new(t, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), props):Play()
+end
+
+local W, H = IS_MOBILE and 390 or 450, 330
+local cam = workspace.CurrentCamera
+local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+local fit = math.max(0.4, math.min(1, (vp.X - 48) / W, (vp.Y - 56) / H))
+local lift = IS_MOBILE and math.max(0, math.min(40, (vp.Y - H * fit) / 2 - 30)) or 0
+
+local backdrop = New("TextButton", {
+	Name = "Backdrop", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0, Text = "",
+	AutoButtonColor = false, Active = true, Modal = true, Parent = gui,
+})
+Tw(backdrop, { BackgroundTransparency = 0.55 }, 0.3)
+
+local holder = New("Frame", {
+	Name = "Holder", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, -lift), Size = UDim2.fromOffset(W, H),
+	BackgroundTransparency = 1, Parent = gui,
+})
+local scale = New("UIScale", { Scale = fit * 0.92, Parent = holder })
+
+local panel = New("CanvasGroup", {
+	Name = "Panel", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, GroupTransparency = 1, Active = true, Parent = holder,
+}, { Corner(20) })
+local surface = New("Frame", {
+	Name = "Surface", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 1, Parent = panel,
+}, {
+	Corner(20),
+	New("UIGradient", {
+		Rotation = 120,
+		Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(34, 34, 39)),
+			ColorSequenceKeypoint.new(0.45, Color3.fromRGB(16, 16, 19)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(9, 9, 11)),
+		}),
+	}),
+})
+TweenService:Create(surface.UIGradient, TweenInfo.new(26, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1), { Rotation = 480 }):Play()
+local panelStroke = Stroke(Color3.fromRGB(160, 160, 168), 1.4, 0.4)
+panelStroke.Parent = panel
+New("UIGradient", {
+	Rotation = 45,
+	Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.5, 0.75), NumberSequenceKeypoint.new(1, 0.1) }),
+	Parent = panelStroke,
+})
+Tw(panel, { GroupTransparency = 0 }, 0.3)
+Tw(scale, { Scale = fit }, 0.3, Enum.EasingStyle.Back)
+
+local function Shard(x, w, rot, tr)
+	New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(x, 0, 0.5, 0), Size = UDim2.fromOffset(w, H * 2), Rotation = rot, BackgroundColor3 = Color3.new(1, 1, 1),
+		BorderSizePixel = 0, ZIndex = 1, Parent = panel,
+	}, { New("UIGradient", { Rotation = 90, Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, tr), NumberSequenceKeypoint.new(1, 1) }) }) })
+end
+Shard(0.84, 70, 28, 0.94)
+Shard(0.14, 36, 28, 0.96)
+
+local function Particle()
+	local size = math.random(2, 5)
+	local p = New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(math.random(), 0, 1.1, 0), Size = UDim2.fromOffset(size, size), BackgroundColor3 = Color3.new(1, 1, 1),
+		BackgroundTransparency = 0.82, BorderSizePixel = 0, ZIndex = 1, Parent = panel,
+	}, { New("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+	Pulse(p, { BackgroundTransparency = 0.97 }, 1 + math.random() * 2)
+	task.spawn(function()
+		task.wait(math.random() * 8)
+		if not p.Parent then return end
+		TweenService:Create(
+			p,
+			TweenInfo.new(7 + math.random() * 8, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1),
+			{ Position = UDim2.new(math.random(), 0, -0.1, 0) }
+		):Play()
+	end)
+end
+for _ = 1, 16 do Particle() end
+
+local sweep = New("Frame", {
+	Name = "Sweep", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(-0.25, 0, 0.5, 0), Size = UDim2.fromOffset(120, H * 2), Rotation = 22,
+	BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 1, Parent = panel,
+}, { New("UIGradient", { Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.95), NumberSequenceKeypoint.new(1, 1) }) }) })
+TweenService:Create(sweep, TweenInfo.new(7, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1), { Position = UDim2.new(1.25, 0, 0.5, 0) }):Play()
+
+local function Tick(x, y, sx, sy)
+	local len = 14
+	local a = Bar(panel, x + sx * len / 2, y, len, 1.5, C.Dim, 0, 1)
+	local b = Bar(panel, x, y + sy * len / 2, 1.5, len, C.Dim, 0, 1)
+	a.BackgroundTransparency = 0.55
+	b.BackgroundTransparency = 0.55
+	a.ZIndex = 2
+	b.ZIndex = 2
+end
+Tick(16, 16, 1, 1)
+Tick(16, H - 18, 1, -1)
+Tick(W - 16, H - 18, -1, -1)
+
+local function Beam(side, seconds, reverse, delay)
+	local x = side == "left" and 3 or W - 3
+	local startY, endY = -0.3, 1.3
+	if reverse then startY, endY = endY, startY end
+	local beam = New("Frame", {
+		Name = "Beam", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, x, startY, 0), Size = UDim2.fromOffset(10, 120), BackgroundTransparency = 1,
+		ZIndex = 2, Parent = panel,
+	})
+	New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(1, 1), BackgroundColor3 = Config.Neon,
+		BackgroundTransparency = 0.78, BorderSizePixel = 0, ZIndex = 2, Parent = beam,
+	}, {
+		New("UICorner", { CornerRadius = UDim.new(1, 0) }),
+		New("UIGradient", { Rotation = 90, Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1) }) }),
+	})
+	New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(0, 2, 1, 0), BackgroundColor3 = Color3.new(1, 1, 1),
+		BorderSizePixel = 0, ZIndex = 3, Parent = beam,
+	}, {
+		New("UIGradient", {
+			Rotation = 90,
+			Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Config.Neon),
+				ColorSequenceKeypoint.new(0.5, Color3.new(1, 1, 1)),
+				ColorSequenceKeypoint.new(1, Config.Neon),
+			}),
+			Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1) }),
+		}),
+	})
+	task.spawn(function()
+		task.wait(delay)
+		if not beam.Parent then return end
+		TweenService:Create(
+			beam,
+			TweenInfo.new(seconds, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1),
+			{ Position = UDim2.new(0, x, endY, 0) }
+		):Play()
+	end)
+end
+Beam("left", 3.2, false, 0)
+Beam("left", 5.4, true, 1.6)
+Beam("right", 3.8, true, 0.6)
+Beam("right", 4.6, false, 2.2)
+
+local titleRow = New("Frame", {
+	Name = "TitleRow", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 26), Size = UDim2.new(1, 0, 0, 44), BackgroundTransparency = 1, ZIndex = 2, Parent = panel,
+}, { New("UIListLayout", {
+	Padding = UDim.new(0, 12), FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center,
+	VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder,
+}) })
+local logoHolder = New("Frame", { Name = "LogoHolder", Size = UDim2.fromOffset(34, 26), BackgroundTransparency = 1, LayoutOrder = 1, ZIndex = 2, Parent = titleRow })
+local halo = New("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(62, 62), BackgroundColor3 = Color3.new(1, 1, 1),
+	BackgroundTransparency = 0.95, BorderSizePixel = 0, ZIndex = 2, Parent = logoHolder,
+}, { New("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+Pulse(halo, { BackgroundTransparency = 0.88 }, 2.2)
+local ring = New("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(50, 50), BackgroundTransparency = 1, ZIndex = 2, Parent = logoHolder,
+}, { New("UICorner", { CornerRadius = UDim.new(1, 0) }), Stroke(Color3.new(1, 1, 1), 1.8, 0) })
+local ringGradient = New("UIGradient", {
+	Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.05), NumberSequenceKeypoint.new(1, 1) }), Parent = ring.UIStroke,
+})
+TweenService:Create(ringGradient, TweenInfo.new(2.6, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1), { Rotation = 360 }):Play()
+local logo = Logo(logoHolder, 0.6)
+logo.ZIndex = 3
+
+local titleText = Config.Title
+if titleText == "UnflyProject" then
+	titleText = "Unfly<font color=\"rgb(140,140,148)\">Project</font>"
+end
+New("TextLabel", {
+	Name = "Title", Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X, BackgroundTransparency = 1, Font = Enum.Font.GothamBold, RichText = true,
+	Text = titleText, TextSize = 30, TextColor3 = Color3.new(1, 1, 1), LayoutOrder = 2, ZIndex = 2, Parent = titleRow,
+})
+
+New("Frame", {
+	Name = "Divider", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 86), Size = UDim2.fromOffset(W - 90, 1), BackgroundColor3 = Color3.fromRGB(170, 170, 178),
+	BorderSizePixel = 0, ZIndex = 2, Parent = panel,
+}, { New("UIGradient", { Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.5), NumberSequenceKeypoint.new(1, 1) }) }) })
+
+local closeBtn = New("TextButton", {
+	Name = "CloseButton", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 12), Size = UDim2.fromOffset(36, 36), BackgroundTransparency = 1,
+	Text = "", AutoButtonColor = false, ZIndex = 6, Parent = panel,
+})
+local crossA = Bar(closeBtn, 18, 18, 14, 2, C.Dim, 45, 1)
+local crossB = Bar(closeBtn, 18, 18, 14, 2, C.Dim, -45, 1)
+closeBtn.MouseEnter:Connect(function()
+	Tw(crossA, { BackgroundColor3 = Color3.new(1, 1, 1) }, 0.12)
+	Tw(crossB, { BackgroundColor3 = Color3.new(1, 1, 1) }, 0.12)
+end)
+closeBtn.MouseLeave:Connect(function()
+	Tw(crossA, { BackgroundColor3 = C.Dim }, 0.15)
+	Tw(crossB, { BackgroundColor3 = C.Dim }, 0.15)
+end)
+
+local inputW = W - 64
+local focused = false
+
+local input = New("Frame", {
+	Name = "Input", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 102), Size = UDim2.fromOffset(inputW, 50), BackgroundColor3 = C.Field,
+	BorderSizePixel = 0, ZIndex = 2, Parent = panel,
+}, { New("UICorner", { CornerRadius = UDim.new(1, 0) }), Stroke(C.Line, 1.2, 0.15) })
+local inputGradient = New("UIGradient", {
+	Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.9), NumberSequenceKeypoint.new(0.5, 0.1), NumberSequenceKeypoint.new(1, 0.9) }), Parent = input.UIStroke,
+})
+TweenService:Create(inputGradient, TweenInfo.new(5, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1), { Rotation = 360 }):Play()
+local iconBg = New("Frame", {
+	Name = "IconBg", Position = UDim2.fromOffset(9, 9), Size = UDim2.fromOffset(32, 32), BackgroundColor3 = Color3.fromRGB(34, 34, 40), BorderSizePixel = 0, ZIndex = 3, Parent = input,
+}, { New("UICorner", { CornerRadius = UDim.new(1, 0) }), Stroke(C.Line, 1, 0.4) })
+local keyIcon = DrawKey(iconBg, C.Text)
+keyIcon.Position = UDim2.fromOffset(6, 6)
+keyIcon.ZIndex = 4
+local iconScale = New("UIScale", { Parent = iconBg })
+local box = New("TextBox", {
+	Name = "KeyBox", Position = UDim2.fromOffset(54, 0), Size = UDim2.new(1, -100, 1, 0), BackgroundTransparency = 1, Font = Enum.Font.Code, TextSize = 15,
+	TextColor3 = C.Text, PlaceholderText = "Enter your key...", PlaceholderColor3 = C.Dim, Text = "", ClearTextOnFocus = false,
+	TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 3, Parent = input,
+})
+local clearBtn = New("TextButton", {
+	Name = "ClearButton", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(28, 28), BackgroundTransparency = 1,
+	Text = "", AutoButtonColor = false, Visible = false, ZIndex = 4, Parent = input,
+})
+Bar(clearBtn, 14, 14, 11, 1.6, C.Dim, 45, 1)
+Bar(clearBtn, 14, 14, 11, 1.6, C.Dim, -45, 1)
+
+local function InputStroke(color, tr)
+	input.UIStroke.Color = color
+	input.UIStroke.Transparency = tr
+end
+
+local function FlashInput(color)
+	InputStroke(color, 0)
+	task.delay(0.7, function()
+		if not gui.Parent then return end
+		if focused then InputStroke(Color3.new(1, 1, 1), 0.3) else InputStroke(C.Line, 0.15) end
+	end)
+end
+
+box.Focused:Connect(function()
+	focused = true
+	InputStroke(Color3.new(1, 1, 1), 0.3)
+	Tw(input, { BackgroundColor3 = Color3.fromRGB(28, 28, 33) }, 0.15)
+end)
+box.FocusLost:Connect(function()
+	focused = false
+	InputStroke(C.Line, 0.15)
+	Tw(input, { BackgroundColor3 = C.Field }, 0.15)
+end)
+box:GetPropertyChangedSignal("Text"):Connect(function()
+	clearBtn.Visible = box.Text ~= ""
+	iconScale.Scale = 1.18
+	Tw(iconScale, { Scale = 1 }, 0.2, Enum.EasingStyle.Back)
+end)
+clearBtn.MouseButton1Click:Connect(function()
+	box.Text = ""
+	pcall(function() box:CaptureFocus() end)
+end)
+
+local statusRow = New("Frame", {
+	Name = "StatusRow", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 162), Size = UDim2.fromOffset(inputW, 20), BackgroundTransparency = 1, ZIndex = 2, Parent = panel,
+}, { New("UIListLayout", {
+	Padding = UDim.new(0, 8), FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center,
+	VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder,
+}) })
+local statusDot = New("Frame", {
+	Name = "Dot", Size = UDim2.fromOffset(7, 7), BackgroundColor3 = C.Dim, BorderSizePixel = 0, LayoutOrder = 1, ZIndex = 2, Parent = statusRow,
+}, { New("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+local status = New("TextLabel", {
+	Name = "Status", Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X, BackgroundTransparency = 1, Font = Enum.Font.Gotham,
+	Text = "Enter your key to continue", TextSize = 12, TextColor3 = C.Dim, LayoutOrder = 2, ZIndex = 2, Parent = statusRow,
+})
+
+local function SetStatus(text, color)
+	status.Text = text
+	status.TextColor3 = color or C.Dim
+	statusDot.BackgroundColor3 = color or C.Dim
+	status.TextTransparency = 1
+	Tw(status, { TextTransparency = 0 }, 0.22)
+end
+Pulse(statusDot, { BackgroundTransparency = 0.6 }, 1.1)
+
+local function MakeButton(name, text, x, primary)
+	local bw = (inputW - 12) / 2
+	local b = New("TextButton", {
+		Name = name, Position = UDim2.new(0.5, x, 0, 198), Size = UDim2.fromOffset(bw, 48), BackgroundColor3 = primary and Color3.new(1, 1, 1) or C.Field,
+		BorderSizePixel = 0, AutoButtonColor = false, Text = "", ZIndex = 2, Parent = panel,
+	}, { New("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+	local bscale = New("UIScale", { Parent = b })
+	if primary then
+		New("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.fromRGB(250, 250, 252), Color3.fromRGB(204, 204, 210)), Parent = b })
+	else
+		Stroke(C.Line, 1.2, 0.1).Parent = b
+	end
+	local flash = New("Frame", {
+		Size = UDim2.fromScale(1, 1), BackgroundColor3 = primary and Color3.new(0, 0, 0) or Color3.new(1, 1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 3, Parent = b,
+	}, { New("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+	local clip = New("CanvasGroup", {
+		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 3, Parent = b,
+	}, { New("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+	local shimmer = New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(-0.3, 0, 0.5, 0), Size = UDim2.fromOffset(46, 140), Rotation = 20,
+		BackgroundColor3 = primary and Color3.new(0, 0, 0) or Color3.new(1, 1, 1), BorderSizePixel = 0, Parent = clip,
+	}, { New("UIGradient", {
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.5, primary and 0.9 or 0.94),
+			NumberSequenceKeypoint.new(1, 1),
+		}),
+	}) })
+	TweenService:Create(shimmer, TweenInfo.new(primary and 3.4 or 4.2, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1), { Position = UDim2.new(1.3, 0, 0.5, 0) }):Play()
+	local label = New("TextLabel", {
+		Name = "Label", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Font = Enum.Font.GothamBold, Text = text, TextSize = 15,
+		TextColor3 = primary and Color3.fromRGB(12, 12, 14) or C.Text, ZIndex = 4, Parent = b,
+	})
+	local hovered = false
+	b.MouseEnter:Connect(function()
+		hovered = true
+		Tw(flash, { BackgroundTransparency = 0.93 }, 0.12)
+	end)
+	b.MouseLeave:Connect(function()
+		hovered = false
+		Tw(flash, { BackgroundTransparency = 1 }, 0.15)
+		Tw(bscale, { Scale = 1 }, 0.1)
+	end)
+	b.MouseButton1Down:Connect(function()
+		Tw(bscale, { Scale = 0.96 }, 0.08)
+		Tw(flash, { BackgroundTransparency = 0.86 }, 0.08)
+	end)
+	b.MouseButton1Up:Connect(function()
+		Tw(bscale, { Scale = 1 }, 0.12)
+		Tw(flash, { BackgroundTransparency = hovered and 0.93 or 1 }, 0.15)
+	end)
+	return b, label
+end
+
+local checkBtn, checkLabel = MakeButton("CheckButton", "Check", -inputW / 2, true)
+local getBtn = MakeButton("GetKeyButton", "Get Key", 6, false)
+local btnW = (inputW - 12) / 2
+local checkGlow = New("Frame", {
+	Name = "CheckGlow", Position = UDim2.new(0.5, -inputW / 2 - 6, 0, 192), Size = UDim2.fromOffset(btnW + 12, 60), BackgroundColor3 = Color3.new(1, 1, 1),
+	BackgroundTransparency = 0.96, BorderSizePixel = 0, ZIndex = 1, Parent = panel,
+}, { New("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+Pulse(checkGlow, { BackgroundTransparency = 0.9 }, 1.8)
+
+local hazeFrame = New("Frame", {
+	Name = "Subtitle", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, H - 62), Size = UDim2.new(1, 0, 0, 26), BackgroundTransparency = 1, ZIndex = 2, Parent = panel,
+})
+local function Haze(dx, dy, tr)
+	return New("TextLabel", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, dx, 0.5, dy), Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Font = Enum.Font.Code,
+		Text = Config.Subtitle, TextSize = 16, TextColor3 = C.Dim, TextTransparency = tr, ZIndex = 2, Parent = hazeFrame,
+	})
+end
+Haze(-1.8, 0, 0.84)
+Haze(1.8, 0, 0.84)
+Haze(0, -1.8, 0.84)
+Haze(0, 1.8, 0.84)
+local hazeMain = Haze(0, 0, 0.5)
+Pulse(hazeMain, { TextTransparency = 0.32 }, 2.6)
+
+local progressTrack = New("Frame", {
+	Name = "ProgressTrack", AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 3), BackgroundColor3 = Color3.new(1, 1, 1),
+	BackgroundTransparency = 0.93, BorderSizePixel = 0, ZIndex = 5, Parent = panel,
+})
+local progress = New("Frame", {
+	Name = "Progress", Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 6, Parent = progressTrack,
+})
+
+local function SlideIn(obj, delay)
+	local target = obj.Position
+	obj.Position = UDim2.new(target.X.Scale, target.X.Offset, target.Y.Scale, target.Y.Offset + 16)
+	task.delay(delay, function()
+		if obj.Parent then Tw(obj, { Position = target }, 0.5, Enum.EasingStyle.Quart) end
+	end)
+end
+SlideIn(titleRow, 0.05)
+SlideIn(input, 0.15)
+SlideIn(statusRow, 0.22)
+SlideIn(checkBtn, 0.3)
+SlideIn(checkGlow, 0.3)
+SlideIn(getBtn, 0.36)
+SlideIn(hazeFrame, 0.45)
+
+local function Shake()
+	local base = holder.Position
+	for _, dx in ipairs({ -8, 8, -6, 6, -3, 3, 0 }) do
+		Tw(holder, { Position = UDim2.new(base.X.Scale, base.X.Offset + dx, base.Y.Scale, base.Y.Offset) }, 0.05)
+		task.wait(0.05)
+	end
+end
+
+local function Close(after)
+	Tw(panel, { GroupTransparency = 1 }, 0.25)
+	Tw(scale, { Scale = fit * 0.92 }, 0.25)
+	Tw(backdrop, { BackgroundTransparency = 1 }, 0.25)
+	task.wait(0.3)
+	Unblock()
+	if env.UnflyKeyGui == gui then env.UnflyKeyGui = nil end
+	gui:Destroy()
+	if after then task.spawn(after) end
+end
+
+local busy = false
+
+local function Check()
+	if busy then return end
+	local key = box.Text
+	if Trim(key) == "" then
+		SetStatus("Enter your key first", C.Warn)
+		FlashInput(C.Warn)
+		Shake()
+		return
+	end
+	busy = true
+	progress.BackgroundColor3 = Color3.new(1, 1, 1)
+	progress.Size = UDim2.fromScale(0, 1)
+
+	-- нелатиница — без запроса на сервер
+	if not IsEnglishOnly(Trim(key)) then
+		checkLabel.Text = "Check"
+		SetStatus("The key is incorrect or has expired.", C.Bad)
+		progress.BackgroundColor3 = C.Bad
+		FlashInput(C.Bad)
+		Shake()
+		Tw(progress, { Size = UDim2.fromScale(0, 1) }, 0.35)
+		busy = false
+		return
+	end
+
+	SetStatus("Checking key", C.Dim)
+	Tw(progress, { Size = UDim2.fromScale(1, 1) }, 0.9, Enum.EasingStyle.Linear)
+	for step = 1, 4 do
+		checkLabel.Text = "Checking" .. string.rep(".", step % 4)
+		task.wait(0.22)
+	end
+
+	local ok, reason = CheckKeyRemote(key)
+	if ok then
+		checkLabel.Text = "Accepted"
+		SetStatus("Key accepted", C.Ok)
+		progress.BackgroundColor3 = C.Ok
+		FlashInput(C.Ok)
+		SaveKey(key)
+		local url = Config.ScriptUrl
+		local hasScript = type(Config.OnSuccess) == "function"
+			or (type(url) == "string" and url ~= "" and not string.find(url, "USERNAME", 1, true))
+		if not hasScript then
+			SetStatus("Key OK, but ScriptUrl not set", C.Warn)
+			checkLabel.Text = "Check"
+			busy = false
+			return
+		end
+		task.wait(0.55)
+		Close(RunScript)
+	else
+		checkLabel.Text = "Check"
+		local msg = "The key is incorrect or has expired."
+		if reason == "network" then
+			msg = "Server error. Try again later."
+		end
+		SetStatus(msg, C.Bad)
+		progress.BackgroundColor3 = C.Bad
+		FlashInput(C.Bad)
+		Shake()
+		Tw(progress, { Size = UDim2.fromScale(0, 1) }, 0.4)
+		busy = false
+	end
+end
+
+checkBtn.MouseButton1Click:Connect(function() task.spawn(Check) end)
+box.FocusLost:Connect(function(enterPressed)
+	if enterPressed then task.spawn(Check) end
+end)
+
+getBtn.MouseButton1Click:Connect(function()
+	local url = Config.GetKeyUrl
+	if type(url) ~= "string" or url == "" then
+		SetStatus("Get Key is not available yet", C.Warn)
+		return
+	end
+	local copy = setclipboard or toclipboard
+	if copy and pcall(copy, url) then
+		SetStatus("Link copied to clipboard", C.Ok)
+	else
+		SetStatus(url, C.Dim)
+	end
+end)
+
+closeBtn.MouseButton1Click:Connect(function() task.spawn(Close) end)
