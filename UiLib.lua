@@ -149,6 +149,20 @@ local function Drag(handle, onMove, onStart, onEnd, conns)
 	end
 end
 
+local DEFAULT_LOGO = "https://raw.githubusercontent.com/RyzenEngineRb/UnflyProject/refs/heads/main/file_0000000084d48243bd8a0a6109e54d5b.png"
+
+local function UrlHash(str)
+	local h = 5381
+	for i = 1, #str do h = (h * 33 + string.byte(str, i)) % 4294967296 end
+	return tostring(h)
+end
+
+local function IsImageData(data)
+	if type(data) ~= "string" or #data < 16 then return false end
+	local h4 = string.sub(data, 1, 4)
+	return h4 == "\137PNG" or string.sub(data, 1, 3) == "\255\216\255" or h4 == "RIFF" or string.sub(data, 1, 3) == "GIF"
+end
+
 local TAP_SLOP = 10
 
 local function Tap(btn, fn)
@@ -1257,11 +1271,19 @@ function Library:CreateWindow(cfg)
 		if src:match("^https?://") then
 			local getasset = getcustomasset or getsynasset
 			if not (writefile and getasset and makefolder and isfolder) then return nil end
+			local cachePath = (src == DEFAULT_LOGO) and (FOLDER .. "/logo_" .. UrlHash(src) .. ".png") or nil
+			if cachePath and isfile then
+				local okc, cached = pcall(function()
+					if isfile(cachePath) then return getasset(cachePath) end
+					return nil
+				end)
+				if okc and cached then return cached end
+			end
 			local ok, data = pcall(function() return game:HttpGet(src) end)
-			if not ok or type(data) ~= "string" or #data < 16 then return nil end
+			if not ok or not IsImageData(data) then return nil end
 			local ok2, asset = pcall(function()
 				if not isfolder(FOLDER) then makefolder(FOLDER) end
-				local path = FOLDER .. "/logo_" .. tostring(#data) .. ".png"
+				local path = cachePath or (FOLDER .. "/logo_" .. tostring(#data) .. ".png")
 				writefile(path, data)
 				return getasset(path)
 			end)
@@ -1273,11 +1295,8 @@ function Library:CreateWindow(cfg)
 	function W:SetLogo(src)
 		src = tostring(src or "")
 		src = src:match("^%s*(.-)%s*$")
-		local img
-		if src ~= "" then
-			img = ResolveImage(src)
-			if not img then return false end
-		end
+		local img = ResolveImage(src ~= "" and src or DEFAULT_LOGO)
+		if src ~= "" and not img then return false end
 		W.LogoImage = img
 		W.LogoSource = src
 		for _, slot in ipairs(W.LogoSlots) do
@@ -1993,7 +2012,7 @@ function Library:CreateWindow(cfg)
 		branding:AddLabel("Logo: locked by the script author")
 	else
 		local logoBox = branding:AddTextBox({
-			Name = "Logo image", Icon = "image", Default = initLogo or "", Placeholder = "URL or asset id",
+			Name = "Logo image", Icon = "image", Default = initLogo or "", Placeholder = "URL or asset id (empty = default)",
 			Callback = function(v)
 				task.spawn(function()
 					if W:SetLogo(v) then
@@ -2109,9 +2128,9 @@ function Library:CreateWindow(cfg)
 
 	if saved.Float == false then nb.Visible = false end
 
-	if initLogo and initLogo ~= "" then
-		task.spawn(function() W:SetLogo(initLogo) end)
-	end
+	task.spawn(function()
+		if not W:SetLogo(initLogo or "") then W:SetLogo("") end
+	end)
 
 	function W:AutoFlag(name)
 		local base = (tostring(name or "item"):lower():gsub("[^%w]+", "_"))
