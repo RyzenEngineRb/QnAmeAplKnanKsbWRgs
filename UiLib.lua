@@ -65,21 +65,22 @@ local D = MOBILE
 local HAS_FS = (writefile and readfile and isfile and isfolder and makefolder and listfiles and delfile) and true or false
 
 local T = {
-	Bg = Color3.fromRGB(22, 18, 16),
-	Panel = Color3.fromRGB(32, 26, 22),
-	Card = Color3.fromRGB(40, 33, 28),
-	Inner = Color3.fromRGB(28, 23, 20),
-	Field = Color3.fromRGB(48, 40, 34),
-	Pop = Color3.fromRGB(36, 30, 26),
-	Line = Color3.fromRGB(92, 74, 58),
-	Text = Color3.fromRGB(236, 226, 214),
-	Dim = Color3.fromRGB(168, 148, 128),
-	Off = Color3.fromRGB(58, 48, 42),
-	Knob = Color3.fromRGB(220, 200, 175),
-	IconC = Color3.fromRGB(198, 172, 142),
-	Red = Color3.fromRGB(220, 110, 90),
-	AccentSoft = Color3.fromRGB(186, 140, 90),
-	Warm = Color3.fromRGB(201, 160, 110),
+	Bg = Color3.fromRGB(12, 16, 28),
+	Panel = Color3.fromRGB(18, 24, 40),
+	Card = Color3.fromRGB(22, 30, 50),
+	Inner = Color3.fromRGB(14, 20, 36),
+	Field = Color3.fromRGB(28, 38, 62),
+	Pop = Color3.fromRGB(20, 28, 48),
+	Line = Color3.fromRGB(70, 120, 200),
+	Text = Color3.fromRGB(230, 238, 255),
+	Dim = Color3.fromRGB(140, 160, 200),
+	Off = Color3.fromRGB(40, 52, 80),
+	Knob = Color3.fromRGB(200, 220, 255),
+	IconC = Color3.fromRGB(160, 190, 255),
+	Red = Color3.fromRGB(255, 110, 130),
+	AccentSoft = Color3.fromRGB(80, 160, 255),
+	Warm = Color3.fromRGB(120, 190, 255),
+	Glow = Color3.fromRGB(64, 160, 255),
 }
 
 local function New(class, props, kids)
@@ -1107,11 +1108,11 @@ function Library:CreateWindow(cfg)
 	local W = {
 		Conns = {}, AccentFns = {}, NeonFns = {}, TransObjs = {}, Tabs = {}, MainTabs = {}, FlagObjs = {}, MemCfg = {}, LogoSlots = {}, NameFns = {}, TabByName = {}, Loops = {}, UnloadFns = {}, LinkObjs = {}, State = "open", RowIcons = cfg.ElementIcons == true,
 		Trans = 0, UserScale = 1, CurrentConfig = "Default", ToggleKey = cfg.ToggleKey or Enum.KeyCode.RightShift,
-		Accent = cfg.Accent or Color3.fromRGB(186, 140, 90), Neon = cfg.Neon or Color3.fromRGB(201, 160, 110),
+		Accent = cfg.Accent or Color3.fromRGB(70, 150, 255), Neon = cfg.Neon or Color3.fromRGB(100, 180, 255),
 	}
 	local NAME = cfg.Name or "UnflyUi"
 	local PUBLISHER = "UnflyTm"
-	local TAGLINE = cfg.Tagline or "Warm UI · Quiet power"
+	local TAGLINE = cfg.Tagline or "Glass UI · Neon edges"
 	local FOLDER = cfg.ConfigFolder or "UnflyUi"
 	local CFGDIR = FOLDER .. "/configs"
 	local SETFILE = FOLDER .. "/settings.json"
@@ -1165,17 +1166,17 @@ function Library:CreateWindow(cfg)
 		New("UIGradient", {
 			Rotation = 135,
 			Color = ColorSequence.new({
-				ColorSequenceKeypoint.new(0, Color3.fromRGB(48, 38, 32)),
-				ColorSequenceKeypoint.new(0.4, Color3.fromRGB(28, 22, 18)),
-				ColorSequenceKeypoint.new(1, Color3.fromRGB(16, 13, 11)),
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(28, 40, 70)),
+				ColorSequenceKeypoint.new(0.45, Color3.fromRGB(14, 20, 38)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(8, 12, 24)),
 			}),
 		}),
 	})
 	W.Root = root
 	TweenService:Create(root.UIGradient, TweenInfo.new(36, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1), { Rotation = 495 }):Play()
 	local glass = New("Frame", {
-		Name = "Glass", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(255, 240, 220),
-		BackgroundTransparency = 0.94, BorderSizePixel = 0, ZIndex = 0, Parent = root,
+		Name = "Glass", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(120, 180, 255),
+		BackgroundTransparency = 0.93, BorderSizePixel = 0, ZIndex = 0, Parent = root,
 	}, {
 		Corner(18),
 		New("UIGradient", {
@@ -1204,7 +1205,7 @@ function Library:CreateWindow(cfg)
 	}):Play()
 	W:Reg(root, 0.08)
 	W:SetTransparency(cfg.Transparency or 0.12)
-	local rs = Stroke(Color3.fromRGB(160, 130, 100), 1.5, 0.35)
+	local rs = Stroke(Color3.fromRGB(80, 160, 255), 1.6, 0.28)
 	rs.Parent = root
 	local rsGradient = New("UIGradient", {
 		Rotation = 45,
