@@ -65,19 +65,21 @@ local D = MOBILE
 local HAS_FS = (writefile and readfile and isfile and isfolder and makefolder and listfiles and delfile) and true or false
 
 local T = {
-	Bg = Color3.fromRGB(11, 11, 13),
-	Panel = Color3.fromRGB(15, 15, 18),
-	Card = Color3.fromRGB(17, 17, 20),
-	Inner = Color3.fromRGB(13, 13, 16),
-	Field = Color3.fromRGB(24, 24, 28),
-	Pop = Color3.fromRGB(20, 20, 24),
-	Line = Color3.fromRGB(52, 52, 58),
-	Text = Color3.fromRGB(238, 238, 241),
-	Dim = Color3.fromRGB(150, 150, 158),
-	Off = Color3.fromRGB(44, 44, 50),
-	Knob = Color3.fromRGB(214, 214, 220),
-	IconC = Color3.fromRGB(205, 205, 211),
-	Red = Color3.fromRGB(255, 102, 105),
+	Bg = Color3.fromRGB(22, 18, 16),
+	Panel = Color3.fromRGB(32, 26, 22),
+	Card = Color3.fromRGB(40, 33, 28),
+	Inner = Color3.fromRGB(28, 23, 20),
+	Field = Color3.fromRGB(48, 40, 34),
+	Pop = Color3.fromRGB(36, 30, 26),
+	Line = Color3.fromRGB(92, 74, 58),
+	Text = Color3.fromRGB(236, 226, 214),
+	Dim = Color3.fromRGB(168, 148, 128),
+	Off = Color3.fromRGB(58, 48, 42),
+	Knob = Color3.fromRGB(220, 200, 175),
+	IconC = Color3.fromRGB(198, 172, 142),
+	Red = Color3.fromRGB(220, 110, 90),
+	AccentSoft = Color3.fromRGB(186, 140, 90),
+	Warm = Color3.fromRGB(201, 160, 110),
 }
 
 local function New(class, props, kids)
@@ -1105,11 +1107,11 @@ function Library:CreateWindow(cfg)
 	local W = {
 		Conns = {}, AccentFns = {}, NeonFns = {}, TransObjs = {}, Tabs = {}, MainTabs = {}, FlagObjs = {}, MemCfg = {}, LogoSlots = {}, NameFns = {}, TabByName = {}, Loops = {}, UnloadFns = {}, LinkObjs = {}, State = "open", RowIcons = cfg.ElementIcons == true,
 		Trans = 0, UserScale = 1, CurrentConfig = "Default", ToggleKey = cfg.ToggleKey or Enum.KeyCode.RightShift,
-		Accent = cfg.Accent or Color3.fromRGB(205, 205, 212), Neon = cfg.Neon or Color3.fromRGB(150, 210, 255),
+		Accent = cfg.Accent or Color3.fromRGB(186, 140, 90), Neon = cfg.Neon or Color3.fromRGB(201, 160, 110),
 	}
 	local NAME = cfg.Name or "UnflyUi"
 	local PUBLISHER = "UnflyTm"
-	local TAGLINE = cfg.Tagline or "Better UI - Better Experience"
+	local TAGLINE = cfg.Tagline or "Warm UI · Quiet power"
 	local FOLDER = cfg.ConfigFolder or "UnflyUi"
 	local CFGDIR = FOLDER .. "/configs"
 	local SETFILE = FOLDER .. "/settings.json"
@@ -1159,20 +1161,50 @@ function Library:CreateWindow(cfg)
 		Name = "Root", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(SIZE.X, SIZE.Y), BackgroundColor3 = T.Bg,
 		BorderSizePixel = 0, ClipsDescendants = true, Active = true, Parent = gui,
 	}, {
-		Corner(16),
+		Corner(18),
 		New("UIGradient", {
-			Rotation = 120,
+			Rotation = 135,
 			Color = ColorSequence.new({
-				ColorSequenceKeypoint.new(0, Color3.fromRGB(26, 26, 30)),
-				ColorSequenceKeypoint.new(0.45, Color3.fromRGB(12, 12, 14)),
-				ColorSequenceKeypoint.new(1, Color3.fromRGB(8, 8, 10)),
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(48, 38, 32)),
+				ColorSequenceKeypoint.new(0.4, Color3.fromRGB(28, 22, 18)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(16, 13, 11)),
 			}),
 		}),
 	})
 	W.Root = root
-	TweenService:Create(root.UIGradient, TweenInfo.new(30, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1), { Rotation = 480 }):Play()
-	W:Reg(root, 0.02)
-	local rs = Stroke(Color3.fromRGB(150, 150, 158), 1.4, 0.5)
+	TweenService:Create(root.UIGradient, TweenInfo.new(36, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1), { Rotation = 495 }):Play()
+	local glass = New("Frame", {
+		Name = "Glass", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(255, 240, 220),
+		BackgroundTransparency = 0.94, BorderSizePixel = 0, ZIndex = 0, Parent = root,
+	}, {
+		Corner(18),
+		New("UIGradient", {
+			Rotation = 90,
+			Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0.2),
+				NumberSequenceKeypoint.new(0.5, 0.55),
+				NumberSequenceKeypoint.new(1, 0.15),
+			}),
+		}),
+	})
+	local sheen = New("Frame", {
+		Name = "Sheen", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(-0.3, 0, 0, 0), Size = UDim2.new(0.45, 0, 1, 0),
+		BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.92, BorderSizePixel = 0, ZIndex = 1, Rotation = 18, Parent = root,
+	}, {
+		New("UIGradient", {
+			Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(0.5, 0.7),
+				NumberSequenceKeypoint.new(1, 1),
+			}),
+		}),
+	})
+	TweenService:Create(sheen, TweenInfo.new(14, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
+		Position = UDim2.new(1.2, 0, 0, 0),
+	}):Play()
+	W:Reg(root, 0.08)
+	W:SetTransparency(cfg.Transparency or 0.12)
+	local rs = Stroke(Color3.fromRGB(160, 130, 100), 1.5, 0.35)
 	rs.Parent = root
 	local rsGradient = New("UIGradient", {
 		Rotation = 45,
@@ -1436,10 +1468,10 @@ function Library:CreateWindow(cfg)
 	}, { List(4) })
 
 	local card = New("TextButton", {
-		AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, -4, 0, D.TAB), BackgroundColor3 = Color3.fromRGB(60, 60, 68),
-		BackgroundTransparency = 1, BorderSizePixel = 0, AutoButtonColor = false, Text = "", ZIndex = 4, Parent = sidebar,
-	}, { Corner(10) })
-	local cardStroke = Stroke(Color3.fromRGB(120, 120, 130), 1, 1)
+		AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, -4, 0, D.TAB), BackgroundColor3 = T.Field,
+		BackgroundTransparency = 0.35, BorderSizePixel = 0, AutoButtonColor = false, Text = "", ZIndex = 4, Parent = sidebar,
+	}, { Corner(12) })
+	local cardStroke = Stroke(T.Line, 1, 0.4)
 	cardStroke.Parent = card
 	local cardIcon = Icon("gear", card, Color3.new(1, 1, 1), 20)
 	cardIcon.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -2186,6 +2218,207 @@ function Library:CreateWindow(cfg)
 		if Library.Active == W then Library.Active = nil end
 		if env.UnflyUiWindow == W then env.UnflyUiWindow = nil end
 	end
+
+
+	do
+		local PET_LINES = {
+			idle = {
+				"Мрр... скучновато.",
+				"Может включим что-нибудь?",
+				"Я тут, если что.",
+				"*зевает*",
+				"Кофейный вайб сегодня...",
+			},
+			toggle_on = {
+				"О, включили %s! Красиво.",
+				"%s активен. Я одобряю.",
+				"Щёлк — и %s работает.",
+				"*мурчит* %s on.",
+			},
+			toggle_off = {
+				"%s выключили. Ладно...",
+				"Без %s как-то тихо.",
+				"Ок, %s отдыхает.",
+			},
+			slider = {
+				"%s → %s. Точно?",
+				"Крутим %s...",
+				"Настройка %s, мря.",
+			},
+			button = {
+				"Жмяк по %s!",
+				"Сделали %s. Молодцы.",
+				"*хлоп* %s",
+			},
+			tab = {
+				"Раздел «%s». Интересно.",
+				"Перешли в %s.",
+			},
+			hello = {
+				"Привет! Я Унфи — твой котик.",
+				"Снова ты. Я рад.",
+				"Готов к работе, мяу.",
+			},
+		}
+		local function pick(list)
+			return list[math.random(1, #list)]
+		end
+		local petGui = New("Frame", {
+			Name = "UnflyPet",
+			AnchorPoint = Vector2.new(1, 1),
+			Position = UDim2.new(1, -16, 1, -16),
+			Size = UDim2.fromOffset(MOBILE and 168 or 196, MOBILE and 148 or 168),
+			BackgroundColor3 = T.Panel,
+			BorderSizePixel = 0,
+			ZIndex = 50,
+			Parent = gui,
+		}, {
+			Corner(16),
+			Stroke(T.Line, 1, 0.25),
+		})
+		W:Reg(petGui, 0.12)
+		local petHead = New("Frame", {
+			Size = UDim2.new(1, 0, 0, 28),
+			BackgroundColor3 = T.Card,
+			BorderSizePixel = 0,
+			ZIndex = 51,
+			Parent = petGui,
+		}, { Corner(12) })
+		New("TextLabel", {
+			BackgroundTransparency = 1,
+			Position = UDim2.fromOffset(10, 0),
+			Size = UDim2.new(1, -40, 1, 0),
+			Font = Enum.Font.GothamBold,
+			TextSize = 12,
+			TextColor3 = T.Text,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Text = "Unfi · pet",
+			ZIndex = 52,
+			Parent = petHead,
+		})
+		local petFace = New("TextLabel", {
+			BackgroundTransparency = 1,
+			Position = UDim2.new(0, 0, 0, 28),
+			Size = UDim2.new(1, 0, 0, MOBILE and 44 or 52),
+			Font = Enum.Font.GothamBold,
+			TextSize = MOBILE and 28 or 34,
+			TextColor3 = T.Warm or T.Text,
+			Text = "(=^･ω･^=)",
+			ZIndex = 52,
+			Parent = petGui,
+		})
+		local chatScroll = New("ScrollingFrame", {
+			Position = UDim2.new(0, 8, 0, MOBILE and 74 or 84),
+			Size = UDim2.new(1, -16, 1, MOBILE and -82 or -92),
+			BackgroundColor3 = T.Inner,
+			BorderSizePixel = 0,
+			ScrollBarThickness = 2,
+			ScrollBarImageColor3 = T.Line,
+			CanvasSize = UDim2.new(0, 0, 0, 0),
+			AutomaticCanvasSize = Enum.AutomaticSize.Y,
+			ZIndex = 51,
+			Parent = petGui,
+		}, {
+			Corner(8),
+			Pad(6, 6, 6, 6),
+			List(4),
+		})
+		local faces = { "(=^･ω･^=)", "(=^･ｪ･^=)", "(=^‥^=)", "(＾・ω・＾)", "(=；ェ；=)", "(=｀ω´=)" }
+		local faceI = 1
+		local lastSay = 0
+		local function petSay(kind, a, b)
+			local now = os.clock()
+			if now - lastSay < 0.35 and kind ~= "hello" then return end
+			lastSay = now
+			local list = PET_LINES[kind] or PET_LINES.idle
+			local msg = pick(list)
+			if a and msg:find("%%s") then
+				if b and select(2, msg:gsub("%%s", "")) >= 2 then
+					msg = string.format(msg, tostring(a), tostring(b))
+				else
+					msg = string.format(msg, tostring(a))
+				end
+			end
+			faceI = faceI % #faces + 1
+			petFace.Text = faces[faceI]
+			local bubble = New("TextLabel", {
+				Size = UDim2.new(1, 0, 0, 0),
+				AutomaticSize = Enum.AutomaticSize.Y,
+				BackgroundColor3 = T.Field,
+				BackgroundTransparency = 0.15,
+				BorderSizePixel = 0,
+				Font = Enum.Font.Gotham,
+				TextSize = 11,
+				TextColor3 = T.Text,
+				TextWrapped = true,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Text = msg,
+				ZIndex = 52,
+				Parent = chatScroll,
+			}, { Corner(6), Pad(6, 4, 6, 4) })
+			local kids = chatScroll:GetChildren()
+			local labels = {}
+			for _, k in ipairs(kids) do
+				if k:IsA("TextLabel") then labels[#labels + 1] = k end
+			end
+			while #labels > 6 do
+				labels[1]:Destroy()
+				table.remove(labels, 1)
+			end
+			task.defer(function()
+				chatScroll.CanvasPosition = Vector2.new(0, chatScroll.AbsoluteCanvasSize.Y)
+			end)
+		end
+		W.PetSay = petSay
+		W.PetFrame = petGui
+		local draggingPet = false
+		local petStart, petPos
+		petHead.InputBegan:Connect(function(i)
+			if not IsPointer(i) then return end
+			draggingPet = true
+			petStart = i.Position
+			petPos = petGui.Position
+			local c
+			c = i.Changed:Connect(function()
+				if i.UserInputState == Enum.UserInputState.End then
+					draggingPet = false
+					c:Disconnect()
+				end
+			end)
+		end)
+		table.insert(W.Conns, UIS.InputChanged:Connect(function(i)
+			if draggingPet and IsMove(i) then
+				local d = i.Position - petStart
+				petGui.Position = UDim2.new(petPos.X.Scale, petPos.X.Offset + d.X, petPos.Y.Scale, petPos.Y.Offset + d.Y)
+			end
+		end))
+		task.defer(function()
+			petSay("hello")
+		end)
+		task.spawn(function()
+			while petGui.Parent do
+				task.wait(12 + math.random() * 10)
+				if petGui.Parent and (os.clock() - lastSay) > 10 then
+					petSay("idle")
+				end
+			end
+		end)
+		local oldEmit = Library._emit
+		function Library:_emit(flag, value)
+			oldEmit(self, flag, value)
+			if W.PetSay then
+				local name = tostring(flag or "option"):gsub("_", " ")
+				if type(value) == "boolean" then
+					W.PetSay(value and "toggle_on" or "toggle_off", name)
+				elseif type(value) == "number" then
+					W.PetSay("slider", name, string.format("%.2g", value))
+				else
+					W.PetSay("button", name)
+				end
+			end
+		end
+	end
+
 
 	env.UnflyUiWindow = W
 
