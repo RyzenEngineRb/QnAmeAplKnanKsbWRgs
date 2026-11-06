@@ -162,7 +162,8 @@ local function Drag(handle, onMove, onStart, onEnd, conns)
 	end
 end
 
-local DEFAULT_LOGO = "https://raw.githubusercontent.com/RyzenEngineRb/UnflyProject/refs/heads/main/file_0000000084d48243bd8a0a6109e54d5b.png"
+local DEFAULT_LOGO = "https://raw.githubusercontent.com/RyzenEngineRb/QnAmeAplKnanKsbWRgs/refs/heads/main/file_00000000b130821088bd273187401b94.png"
+local DEFAULT_BG = "https://raw.githubusercontent.com/RyzenEngineRb/QnAmeAplKnanKsbWRgs/refs/heads/main/file_000000008b6482109698a7b38189999c.png"
 
 local function UrlHash(str)
 	local h = 5381
@@ -1336,6 +1337,35 @@ function Library:CreateWindow(cfg)
 	W.Gui = gui
 	Library.Active = W
 
+	local function ResolveImage(src, kind)
+		kind = kind or "logo"
+		if src:match("^rbxassetid://") or src:match("^rbxasset://") or src:match("^rbxthumb://") then return src end
+		if src:match("^%d+$") then return "rbxassetid://" .. src end
+		if src:match("^https?://") then
+			local getasset = getcustomasset or getsynasset
+			if not (writefile and getasset and makefolder and isfolder) then return nil end
+			local isDefault = (src == DEFAULT_LOGO) or (src == DEFAULT_BG)
+			local cachePath = isDefault and (FOLDER .. "/" .. kind .. "_" .. UrlHash(src) .. ".png") or nil
+			if cachePath and isfile then
+				local okc, cached = pcall(function()
+					if isfile(cachePath) then return getasset(cachePath) end
+					return nil
+				end)
+				if okc and cached then return cached end
+			end
+			local ok, data = pcall(function() return game:HttpGet(src) end)
+			if not ok or not IsImageData(data) then return nil end
+			local ok2, asset = pcall(function()
+				if not isfolder(FOLDER) then makefolder(FOLDER) end
+				local path = cachePath or (FOLDER .. "/" .. kind .. "_" .. tostring(#data) .. ".png")
+				writefile(path, data)
+				return getasset(path)
+			end)
+			if ok2 and asset then return asset end
+		end
+		return nil
+	end
+
 	local root = New("Frame", {
 		Name = "Root", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(SIZE.X, SIZE.Y), BackgroundColor3 = T.Bg,
 		BorderSizePixel = 0, ClipsDescendants = true, Active = true, Parent = gui,
@@ -1361,6 +1391,31 @@ function Library:CreateWindow(cfg)
 		Parent = rs,
 	})
 	TweenService:Create(rsGradient, TweenInfo.new(9, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1), { Rotation = 405 }):Play()
+	local bgImage = New("ImageLabel", {
+		Name = "Background", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Crop, Image = "", ImageTransparency = 1, ZIndex = 1, Parent = root,
+	})
+	local bgOverlay = New("Frame", {
+		Name = "BackgroundOverlay", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(4, 5, 16), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 1, Parent = root,
+	})
+	local BG_DIM = 0.38
+	function W:SetBackground(src)
+		src = tostring(src or "")
+		src = src:match("^%s*(.-)%s*$")
+		if src == "" then
+			Tw(bgImage, { ImageTransparency = 1 }, 0.3)
+			Tw(bgOverlay, { BackgroundTransparency = 1 }, 0.3)
+			W.BackgroundSource = ""
+			return true
+		end
+		local img = ResolveImage(src, "bg")
+		if not img then return false end
+		bgImage.Image = img
+		Tw(bgImage, { ImageTransparency = 0.08 }, 0.4)
+		Tw(bgOverlay, { BackgroundTransparency = BG_DIM }, 0.4)
+		W.BackgroundSource = src
+		return true
+	end
+
 	local uiscale = New("UIScale", { Parent = root })
 	W.Scale = uiscale
 
@@ -1452,37 +1507,10 @@ function Library:CreateWindow(cfg)
 	end
 	Tap(W.Blocker, function() W:ClosePopup() end)
 
-	local function ResolveImage(src)
-		if src:match("^rbxassetid://") or src:match("^rbxasset://") or src:match("^rbxthumb://") then return src end
-		if src:match("^%d+$") then return "rbxassetid://" .. src end
-		if src:match("^https?://") then
-			local getasset = getcustomasset or getsynasset
-			if not (writefile and getasset and makefolder and isfolder) then return nil end
-			local cachePath = (src == DEFAULT_LOGO) and (FOLDER .. "/logo_" .. UrlHash(src) .. ".png") or nil
-			if cachePath and isfile then
-				local okc, cached = pcall(function()
-					if isfile(cachePath) then return getasset(cachePath) end
-					return nil
-				end)
-				if okc and cached then return cached end
-			end
-			local ok, data = pcall(function() return game:HttpGet(src) end)
-			if not ok or not IsImageData(data) then return nil end
-			local ok2, asset = pcall(function()
-				if not isfolder(FOLDER) then makefolder(FOLDER) end
-				local path = cachePath or (FOLDER .. "/logo_" .. tostring(#data) .. ".png")
-				writefile(path, data)
-				return getasset(path)
-			end)
-			if ok2 and asset then return asset end
-		end
-		return nil
-	end
-
 	function W:SetLogo(src)
 		src = tostring(src or "")
 		src = src:match("^%s*(.-)%s*$")
-		local img = ResolveImage(src ~= "" and src or DEFAULT_LOGO)
+		local img = ResolveImage(src ~= "" and src or DEFAULT_LOGO, "logo")
 		if src ~= "" and not img then return false end
 		W.LogoImage = img
 		W.LogoSource = src
@@ -2210,7 +2238,7 @@ function Library:CreateWindow(cfg)
 		pcall(function()
 			if not isfolder(FOLDER) then makefolder(FOLDER) end
 			writefile(SETFILE, HttpService:JSONEncode({
-				Scale = W.UserScale, Trans = W.Trans, Float = W.NeonBtn.Visible, Logo = W.LogoSource,
+				Scale = W.UserScale, Trans = W.Trans, Float = W.NeonBtn.Visible, Logo = W.LogoSource, Bg = W.BackgroundSource ~= "",
 				Accent = { W.Accent.R, W.Accent.G, W.Accent.B }, Neon = { W.Neon.R, W.Neon.G, W.Neon.B },
 			}))
 		end)
@@ -2299,6 +2327,17 @@ function Library:CreateWindow(cfg)
 		Name = "Transparency", Min = 0, Max = 80, Increment = 5, Suffix = "%", Default = (saved.Trans or 0) * 100, Icon = "eye",
 		Callback = function(v)
 			W:SetTransparency(v / 100)
+			SaveSettings()
+		end,
+	})
+	appearance:AddToggle({
+		Name = "Background image", Icon = "image", Default = saved.Bg ~= false,
+		Callback = function(v)
+			if v then
+				W:SetBackground((cfg.Background == nil) and DEFAULT_BG or cfg.Background)
+			else
+				W:SetBackground("")
+			end
 			SaveSettings()
 		end,
 	})
@@ -2459,6 +2498,254 @@ function Library:CreateWindow(cfg)
 	task.spawn(function()
 		if not W:SetLogo(initLogo or "") then W:SetLogo("") end
 	end)
+	task.spawn(function()
+		local bg = cfg.Background
+		if bg == nil then bg = DEFAULT_BG end
+		if bg ~= "" then
+			if not W:SetBackground(bg) and bg ~= DEFAULT_BG then W:SetBackground(DEFAULT_BG) end
+		end
+	end)
+
+	function W:AddGallery(cfg)
+		cfg = cfg or {}
+		local tab = W:Tab(cfg.TabName or "Gallery", cfg.TabIcon or "star")
+		tab:SetSubtitle(cfg.Subtitle or "")
+		local page = tab.Page
+
+		local categories = cfg.Categories or { "All" }
+		local items = cfg.Items or {}
+		local state = { filter = categories[1], selected = nil, cards = {}, items = items }
+
+		local top = New("Frame", {
+			Name = "GalleryTop", Size = UDim2.new(1, 0, 0, 44), BackgroundTransparency = 1, ZIndex = 3, Parent = page,
+		}, { New("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder,
+		}) })
+
+		local pillBtns = {}
+		local function renderPills()
+			for cat, b in pairs(pillBtns) do
+				local on = state.filter == cat
+				Tw(b, { BackgroundTransparency = on and 0 or 1 }, 0.15)
+				Tw(b.UIStroke, { Transparency = on and 1 or 0.25 }, 0.15)
+				Tw(b.Label, { TextColor3 = on and Color3.fromRGB(10, 10, 16) or T.Text }, 0.15)
+			end
+		end
+		for i, cat in ipairs(categories) do
+			local b = New("TextButton", {
+				Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 1, BorderSizePixel = 0,
+				AutoButtonColor = false, Text = "", LayoutOrder = i, ZIndex = 4, Parent = top,
+			}, { New("UICorner", { CornerRadius = UDim.new(1, 0) }), Stroke(T.Line, 1.2, 0.25), Pad(16, 0, 16, 0) })
+			New("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.fromRGB(128, 144, 255), Color3.fromRGB(78, 92, 226)), Parent = b })
+			local lbl = New("TextLabel", {
+				Name = "Label", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Font = Enum.Font.Garamond, Text = cat, TextSize = MOBILE and 15 or 17,
+				TextColor3 = T.Text, ZIndex = 5, Parent = b,
+			})
+			b.Label = lbl
+			pillBtns[cat] = b
+			Tap(b, function()
+				state.filter = cat
+				renderPills()
+				renderGrid()
+			end)
+		end
+
+		local body = New("Frame", {
+			Name = "GalleryBody", Position = UDim2.fromOffset(0, 52), Size = UDim2.new(1, 0, 1, -52), BackgroundTransparency = 1, ZIndex = 3, Parent = page,
+		})
+		local DETAIL_H = MOBILE and 150 or 130
+		local scroll = New("ScrollingFrame", {
+			Size = UDim2.new(1, 0, 1, -(DETAIL_H + 10)), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = W.Accent,
+			CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ZIndex = 3, Parent = body,
+		}, { New("UIGridLayout", {
+			CellSize = UDim2.new(0, MOBILE and 110 or 140, 0, MOBILE and 110 or 140), CellPadding = UDim2.fromOffset(10, 10), SortOrder = Enum.SortOrder.LayoutOrder,
+		}), Pad(2, 2, 2, 10) })
+		W:BindAccent(function(c) scroll.ScrollBarImageColor3 = c end)
+
+		local detail = New("Frame", {
+			Name = "GalleryDetail", AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, DETAIL_H), BackgroundColor3 = T.Card, BorderSizePixel = 0,
+			ZIndex = 3, Parent = body,
+		}, { Corner(20), Stroke(T.Line, 1.2, 0.25), Pad(16, 14, 16, 14) })
+		W:Reg(detail, 0.2)
+
+		local dIcon = New("Frame", {
+			Size = UDim2.fromOffset(74, 74), BackgroundColor3 = T.Field, BorderSizePixel = 0, ZIndex = 4, Parent = detail,
+		}, { Corner(16), Stroke(T.Line, 1.2, 0.2) })
+		local dIconGlyph = Icon(cfg.DefaultIcon or "star", dIcon, T.Text, 32)
+		dIconGlyph.AnchorPoint = Vector2.new(0.5, 0.5)
+		dIconGlyph.Position = UDim2.fromScale(0.5, 0.5)
+
+		local dName = New("TextLabel", {
+			BackgroundTransparency = 1, Position = UDim2.fromOffset(90, 0), Size = UDim2.new(0, MOBILE and 160 or 220, 0, 26), Font = Enum.Font.Garamond, Text = "", TextSize = MOBILE and 20 or 24,
+			TextColor3 = T.Text, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 4, Parent = detail,
+		})
+		local dLevel = New("TextLabel", {
+			BackgroundTransparency = 1, Position = UDim2.fromOffset(90, 26), Size = UDim2.new(0, MOBILE and 160 or 220, 0, 18), Font = Enum.Font.Gotham, Text = "", TextSize = 12,
+			TextColor3 = T.Dim, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 4, Parent = detail,
+		})
+		local barTrack = New("Frame", {
+			Position = UDim2.fromOffset(90, 48), Size = UDim2.new(0, MOBILE and 160 or 220, 0, 6), BackgroundColor3 = T.Off, BorderSizePixel = 0, ZIndex = 4, Parent = detail,
+		}, { Corner(3) })
+		local barFill = New("Frame", {
+			Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 5, Parent = barTrack,
+		}, { Corner(3), New("UIGradient", { Color = ColorSequence.new(Color3.fromRGB(128, 144, 255), Color3.fromRGB(230, 234, 255)) }) })
+		local dDesc = New("TextLabel", {
+			BackgroundTransparency = 1, Position = UDim2.fromOffset(90, 62), Size = UDim2.new(0, MOBILE and 160 or 220, 0, DETAIL_H - 76), Font = Enum.Font.Gotham, Text = "",
+			TextSize = 12, TextColor3 = T.Dim, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 4, Parent = detail,
+		})
+
+		local abilitiesHolder
+		if not MOBILE then
+			abilitiesHolder = New("Frame", {
+				AnchorPoint = Vector2.new(0, 0), Position = UDim2.new(0, 340, 0, 0), Size = UDim2.new(0, 220, 1, 0), BackgroundTransparency = 1, ZIndex = 4, Parent = detail,
+			})
+			New("TextLabel", {
+				BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 18), Font = Enum.Font.Gotham, Text = "Abilities", TextSize = 12, TextColor3 = T.Dim, TextXAlignment = Enum.TextXAlignment.Left,
+				ZIndex = 4, Parent = abilitiesHolder,
+			})
+			abilitiesHolder.Items = New("Frame", {
+				Position = UDim2.fromOffset(0, 24), Size = UDim2.new(1, 0, 1, -24), BackgroundTransparency = 1, ZIndex = 4, Parent = abilitiesHolder,
+			}, { New("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }) })
+		end
+
+		local actions = New("Frame", {
+			AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 2), Size = UDim2.new(0, MOBILE and 44 or 210, 1, -16), BackgroundTransparency = 1, ZIndex = 4, Parent = detail,
+		}, { New("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), HorizontalAlignment = Enum.HorizontalAlignment.Right, VerticalAlignment = Enum.VerticalAlignment.Center,
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}) })
+		local selectBtn
+		if not MOBILE then
+			selectBtn = New("TextButton", {
+				Size = UDim2.fromOffset(150, 46), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, AutoButtonColor = false, Text = "", LayoutOrder = 1, ZIndex = 5, Parent = actions,
+			}, { New("UICorner", { CornerRadius = UDim.new(1, 0) }), New("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.fromRGB(128, 144, 255), Color3.fromRGB(78, 92, 226)) }) })
+			New("TextLabel", {
+				BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Font = Enum.Font.GothamBold, Text = cfg.SelectText or "Select", TextSize = 15, TextColor3 = Color3.fromRGB(10, 10, 16),
+				ZIndex = 6, Parent = selectBtn,
+			})
+		end
+		local deleteBtn = New("TextButton", {
+			Size = UDim2.fromOffset(46, 46), BackgroundColor3 = T.Field, BorderSizePixel = 0, AutoButtonColor = false, Text = "", LayoutOrder = 2, ZIndex = 5, Parent = actions,
+		}, { Corner(14), Stroke(T.Line, 1.2, 0.3) })
+		local delIcon = Icon("trash", deleteBtn, T.Red, 18)
+		delIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+		delIcon.Position = UDim2.fromScale(0.5, 0.5)
+
+		local function showDetail(id)
+			local item = nil
+			for _, it in ipairs(state.items) do
+				if it.Id == id then
+					item = it
+					break
+				end
+			end
+			if not item then
+				detail.Visible = false
+				return
+			end
+			detail.Visible = true
+			state.selected = id
+			dIconGlyph.Name = item.Icon or cfg.DefaultIcon or "star"
+			local fresh = Icon(item.Icon or cfg.DefaultIcon or "star", dIcon, T.Text, 32)
+			fresh.AnchorPoint = Vector2.new(0.5, 0.5)
+			fresh.Position = UDim2.fromScale(0.5, 0.5)
+			dIconGlyph:Destroy()
+			dIconGlyph = fresh
+			dName.Text = item.Name or "Item"
+			local lvl, maxLvl = item.Level or 0, item.MaxLevel or 100
+			dLevel.Text = (cfg.LevelLabel or "Level") .. ": " .. lvl .. " / " .. maxLvl
+			barFill.Size = UDim2.fromScale(math.clamp(lvl / math.max(maxLvl, 1), 0, 1), 1)
+			dDesc.Text = item.Description or ""
+			if abilitiesHolder then
+				for _, c in ipairs(abilitiesHolder.Items:GetChildren()) do
+					if c.ClassName == "Frame" then c:Destroy() end
+				end
+				for i, ab in ipairs(item.Abilities or {}) do
+					local cell = New("Frame", {
+						Size = UDim2.fromOffset(44, 44), BackgroundColor3 = T.Field, BorderSizePixel = 0, LayoutOrder = i, ZIndex = 5, Parent = abilitiesHolder.Items,
+					}, { Corner(12), Stroke(T.Line, 1, 0.3) })
+					local aIcon = Icon(ab.Icon or "star", cell, T.Text, 18)
+					aIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+					aIcon.Position = UDim2.fromScale(0.5, 0.5)
+				end
+			end
+			for cid, c in pairs(state.cards) do
+				Tw(c.UIStroke, { Transparency = (cid == id) and 0 or 0.6 }, 0.15)
+			end
+		end
+
+		local function currentItem()
+			for _, it in ipairs(state.items) do
+				if it.Id == state.selected then return it end
+			end
+			return nil
+		end
+		if selectBtn then
+			Tap(selectBtn, function()
+				local item = currentItem()
+				if item then Safe(cfg.OnSelect, item) end
+			end)
+		end
+		Tap(deleteBtn, function()
+			local item = currentItem()
+			if item then Safe(cfg.OnDelete, item) end
+		end)
+
+		function renderGrid()
+			for _, c in ipairs(scroll:GetChildren()) do
+				if c.ClassName == "TextButton" then c:Destroy() end
+			end
+			state.cards = {}
+			local order = 0
+			for _, item in ipairs(state.items) do
+				if state.filter == categories[1] or item.Category == state.filter then
+					order = order + 1
+					local card = New("TextButton", {
+						BackgroundColor3 = T.Card, BorderSizePixel = 0, AutoButtonColor = false, Text = "", LayoutOrder = order, ZIndex = 4, Parent = scroll,
+					}, { Corner(16), Stroke(T.Line, 1.2, 0.6) })
+					W:Reg(card, 0.1)
+					local ic = Icon(item.Icon or cfg.DefaultIcon or "star", card, T.Text, 30)
+					ic.AnchorPoint = Vector2.new(0.5, 0.5)
+					ic.Position = UDim2.fromScale(0.5, 0.42)
+					New("TextLabel", {
+						BackgroundTransparency = 1, AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -8), Size = UDim2.new(1, -8, 0, 16), Font = Enum.Font.Gotham,
+						Text = item.Name or "", TextSize = 11, TextColor3 = T.Dim, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 5, Parent = card,
+					})
+					if item.Rare then
+						local badge = Icon("star", card, Color3.fromRGB(255, 214, 120), 14)
+						badge.AnchorPoint = Vector2.new(1, 0)
+						badge.Position = UDim2.new(1, -6, 0, 6)
+						badge.ZIndex = 5
+					end
+					state.cards[item.Id] = card
+					Tap(card, function() showDetail(item.Id) end)
+				end
+			end
+			if state.selected and not state.cards[state.selected] then state.selected = nil end
+			if not state.selected and order > 0 then showDetail(state.items[1].Id) end
+			if order == 0 then detail.Visible = false end
+		end
+
+		function tab:AddItem(item)
+			table.insert(state.items, item)
+			renderGrid()
+			return item
+		end
+		function tab:RemoveItem(id)
+			for i, it in ipairs(state.items) do
+				if it.Id == id then
+					table.remove(state.items, i)
+					break
+				end
+			end
+			renderGrid()
+		end
+		function tab:SelectItem(id) showDetail(id) end
+
+		renderPills()
+		renderGrid()
+		return tab
+	end
 
 	function W:AddIconBrowser(title)
 		local tab = W:Tab(title or "Icons", "image")
