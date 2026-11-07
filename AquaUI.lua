@@ -124,6 +124,7 @@ local function TextOn(c)
 end
 
 local CACHE_FOLDER = "AquaUI"
+local DEFAULT_LOGO = "https://raw.githubusercontent.com/RyzenEngineRb/kMjanwixHa/refs/heads/main/file_0000000081f081f48529c8200775be33.png"
 
 local function UrlHash(s)
 	local h = 5381
@@ -300,14 +301,12 @@ local function BuildLogo(holder, size, image, color)
 	end
 	if image then
 		New("ImageLabel", {
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.fromOffset(size, size),
+			Size = UDim2.fromScale(1, 1),
 			BackgroundTransparency = 1,
 			Image = image,
-			ScaleType = Enum.ScaleType.Fit,
+			ScaleType = Enum.ScaleType.Crop,
 			Parent = holder,
-		})
+		}, { Corner(UDim.new(1, 0)) })
 		return
 	end
 	local sq = New("Frame", {
@@ -386,6 +385,45 @@ local function AutoFit(label, max, min)
 	task.defer(upd)
 end
 
+local neons = {}
+local NEON_COLORS = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+	ColorSequenceKeypoint.new(0.5, Color3.fromRGB(196, 214, 255)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255)),
+})
+local NEON_ALPHA = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 0),
+	NumberSequenceKeypoint.new(0.5, 0.55),
+	NumberSequenceKeypoint.new(1, 0),
+})
+
+local function NeonRing(parent, thickness)
+	thickness = thickness or 2
+	local glow = New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		ZIndex = 3,
+		Parent = parent,
+	}, { Corner(UDim.new(1, 0)) })
+	local gs = Stroke(glow, Color3.new(1, 1, 1), 0.7, thickness + 4)
+	local gg = New("UIGradient", { Color = NEON_COLORS, Transparency = NEON_ALPHA, Parent = gs })
+	local ring = New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		ZIndex = 4,
+		Parent = parent,
+	}, { Corner(UDim.new(1, 0)) })
+	local rs = Stroke(ring, Color3.new(1, 1, 1), 0, thickness)
+	local rg = New("UIGradient", { Color = NEON_COLORS, Transparency = NEON_ALPHA, Parent = rs })
+	table.insert(neons, { g = rg, glow = gs, speed = 70 })
+	table.insert(neons, { g = gg, speed = -45 })
+	return ring
+end
+
 local ticks = {}
 
 local function CreateWatermark(gui, W, yOffset, cfg)
@@ -393,7 +431,7 @@ local function CreateWatermark(gui, W, yOffset, cfg)
 		Name = "Watermark",
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.new(0.5, 0, 0, yOffset),
-		Size = UDim2.fromOffset(200, 32),
+		Size = UDim2.fromOffset(230, 38),
 		BackgroundColor3 = Color3.fromRGB(10, 10, 12),
 		BorderSizePixel = 0,
 		ZIndex = 5,
@@ -405,7 +443,7 @@ local function CreateWatermark(gui, W, yOffset, cfg)
 	local content = New("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(0, 24),
+		Size = UDim2.fromOffset(0, 30),
 		AutomaticSize = Enum.AutomaticSize.X,
 		BackgroundTransparency = 1,
 		Parent = bar,
@@ -419,7 +457,7 @@ local function CreateWatermark(gui, W, yOffset, cfg)
 	})
 
 	local avatar = New("Frame", {
-		Size = UDim2.fromOffset(24, 24),
+		Size = UDim2.fromOffset(30, 30),
 		BackgroundColor3 = Color3.fromRGB(28, 28, 33),
 		LayoutOrder = 0,
 		Parent = content,
@@ -435,7 +473,7 @@ local function CreateWatermark(gui, W, yOffset, cfg)
 
 	local function Chip(order, color)
 		local c = New("Frame", {
-			Size = UDim2.fromOffset(0, 20),
+			Size = UDim2.fromOffset(0, 26),
 			AutomaticSize = Enum.AutomaticSize.X,
 			BackgroundColor3 = Color3.fromRGB(28, 28, 33),
 			LayoutOrder = order,
@@ -443,16 +481,16 @@ local function CreateWatermark(gui, W, yOffset, cfg)
 		})
 		Corner(c, UDim.new(1, 0))
 		local l = New("TextLabel", {
-			Size = UDim2.fromOffset(0, 20),
+			Size = UDim2.fromOffset(0, 26),
 			AutomaticSize = Enum.AutomaticSize.X,
 			BackgroundTransparency = 1,
 			Font = Enum.Font.GothamMedium,
-			TextSize = 11,
+			TextSize = 13,
 			TextColor3 = color or THEME.Text,
 			Text = "...",
 			Parent = c,
 		})
-		New("UIPadding", { PaddingLeft = UDim.new(0, 9), PaddingRight = UDim.new(0, 9), Parent = l })
+		New("UIPadding", { PaddingLeft = UDim.new(0, 11), PaddingRight = UDim.new(0, 11), Parent = l })
 		return l
 	end
 
@@ -479,7 +517,7 @@ local function CreateWatermark(gui, W, yOffset, cfg)
 	end))
 
 	content:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-		bar.Size = UDim2.fromOffset(content.AbsoluteSize.X + 12, 32)
+		bar.Size = UDim2.fromOffset(content.AbsoluteSize.X + 16, 38)
 	end)
 	MakeDraggable(bar, bar)
 
@@ -698,7 +736,8 @@ local function Elements(container, W, cardRef)
 		local min, max = cfg.Min or 0, cfg.Max or 100
 		local inc = cfg.Increment or 1
 		local dec = Decimals(inc)
-		local h = ROW_H + 16
+		local KR = MOBILE and 12 or 10
+		local h = ROW_H + 24
 		local r = Row(h)
 		local lbl = Lbl(r, cfg.Name, 90, 8, 18)
 		lbl.Size = UDim2.new(1, -(PAD + 90), 0, 18)
@@ -714,8 +753,8 @@ local function Elements(container, W, cardRef)
 			Parent = r,
 		})
 		local hit = New("TextButton", {
-			Position = UDim2.fromOffset(PAD, h - 30),
-			Size = UDim2.new(1, -(PAD * 2), 0, 26),
+			Position = UDim2.fromOffset(PAD, h - 38),
+			Size = UDim2.new(1, -(PAD * 2), 0, 32),
 			BackgroundTransparency = 1,
 			Text = "",
 			AutoButtonColor = false,
@@ -724,21 +763,43 @@ local function Elements(container, W, cardRef)
 		})
 		local track = New("Frame", {
 			AnchorPoint = Vector2.new(0, 0.5),
-			Position = UDim2.fromScale(0, 0.5),
-			Size = UDim2.new(1, 0, 0, 6),
+			Position = UDim2.new(0, KR, 0.5, 0),
+			Size = UDim2.new(1, -KR * 2, 0, 8),
 			BackgroundColor3 = THEME.Off,
 			BorderSizePixel = 0,
 			Parent = hit,
-		}, { Corner(UDim.new(1, 0)) })
+		}, { Corner(UDim.new(1, 0)), Stroke(THEME.Line, 0.3) })
 		local fill = New("Frame", {
 			Size = UDim2.fromScale(0, 1),
-			BackgroundColor3 = W.Accent,
+			BackgroundColor3 = Color3.new(1, 1, 1),
 			BorderSizePixel = 0,
 			Parent = track,
 		}, { Corner(UDim.new(1, 0)) })
+		local fillGrad = New("UIGradient", { Parent = fill })
+		local knob = New("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0, 0.5),
+			Size = UDim2.fromOffset(KR * 2, KR * 2),
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			BorderSizePixel = 0,
+			ZIndex = 3,
+			Parent = track,
+		}, { Corner(UDim.new(1, 0)) })
+		local knobRing = Stroke(knob, W.Accent, 0.35, 3)
+		local dot = New("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromScale(0.4, 0.4),
+			BackgroundColor3 = W.Accent,
+			BorderSizePixel = 0,
+			ZIndex = 4,
+			Parent = knob,
+		}, { Corner(UDim.new(1, 0)) })
 		W:BindAccent(function(c)
-			fill.BackgroundColor3 = c
+			fillGrad.Color = ColorSequence.new(c:Lerp(Color3.new(0, 0, 0), 0.3), c:Lerp(Color3.new(1, 1, 1), 0.2))
 			val.TextColor3 = c
+			knobRing.Color = c
+			dot.BackgroundColor3 = c
 		end)
 		local obj = { Value = min, Type = "Slider" }
 		local function snap(v)
@@ -747,7 +808,9 @@ local function Elements(container, W, cardRef)
 			return tonumber(string.format("%." .. dec .. "f", math.clamp(v, min, max)))
 		end
 		local function render()
-			fill.Size = UDim2.fromScale((obj.Value - min) / math.max(max - min, 1e-9), 1)
+			local frac = (obj.Value - min) / math.max(max - min, 1e-9)
+			fill.Size = UDim2.fromScale(frac, 1)
+			knob.Position = UDim2.new(frac, 0, 0.5, 0)
 			val.Text = string.format("%." .. dec .. "f", obj.Value) .. (cfg.Suffix or "")
 		end
 		function obj:Set(v, silent)
@@ -758,11 +821,12 @@ local function Elements(container, W, cardRef)
 		function obj:Get() return obj.Value end
 		local sliding, scrollRef = false, nil
 		local function update(x)
-			local rel = math.clamp((x - hit.AbsolutePosition.X) / math.max(hit.AbsoluteSize.X, 1), 0, 1)
+			local rel = math.clamp((x - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
 			obj:Set(min + (max - min) * rel)
 		end
 		local function stop()
 			sliding = false
+			Tween(knob, { Size = UDim2.fromOffset(KR * 2, KR * 2) }, 0.12)
 			if scrollRef then
 				scrollRef.ScrollingEnabled = true
 				scrollRef = nil
@@ -771,6 +835,7 @@ local function Elements(container, W, cardRef)
 		hit.InputBegan:Connect(function(i)
 			if IsPointer(i) then
 				sliding = true
+				Tween(knob, { Size = UDim2.fromOffset(KR * 2 + 6, KR * 2 + 6) }, 0.12)
 				scrollRef = hit:FindFirstAncestorOfClass("ScrollingFrame")
 				if scrollRef then scrollRef.ScrollingEnabled = false end
 				update(i.Position.X)
@@ -924,6 +989,7 @@ function Library:CreateWindow(cfg)
 	for k in pairs(Library.Options) do Library.Options[k] = nil end
 	for k in pairs(Library.Listeners) do Library.Listeners[k] = nil end
 	table.clear(ticks)
+	table.clear(neons)
 
 	local NAME = tostring(cfg.Name or cfg.Title or "Aqua")
 	local FOLDER = cfg.ConfigFolder or "AquaUI"
@@ -1015,6 +1081,16 @@ function Library:CreateWindow(cfg)
 	Library.Active = W
 
 	local conn = RunService.RenderStepped:Connect(function(dt)
+		local t = os.clock()
+		for i = #neons, 1, -1 do
+			local n = neons[i]
+			if n.g.Parent then
+				n.g.Rotation = (t * n.speed) % 360
+				if n.glow then n.glow.Transparency = 0.62 + 0.12 * math.sin(t * 2.2) end
+			else
+				table.remove(neons, i)
+			end
+		end
 		for _, f in ipairs(ticks) do
 			f(dt)
 		end
@@ -1077,7 +1153,21 @@ function Library:CreateWindow(cfg)
 			SortOrder = Enum.SortOrder.LayoutOrder,
 		}),
 	})
-	local logoHolder = New("Frame", { Size = UDim2.fromOffset(22, 22), BackgroundTransparency = 1, LayoutOrder = 0, Parent = titleBox })
+	local logoWrap = New("Frame", {
+		Size = UDim2.fromOffset(30, 30),
+		BackgroundColor3 = Color3.fromRGB(10, 10, 12),
+		BorderSizePixel = 0,
+		LayoutOrder = 0,
+		Parent = titleBox,
+	}, { Corner(UDim.new(1, 0)) })
+	NeonRing(logoWrap, 1.5)
+	local logoHolder = New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(22, 22),
+		BackgroundTransparency = 1,
+		Parent = logoWrap,
+	})
 	New("TextLabel", {
 		Size = UDim2.fromOffset(0, 18),
 		AutomaticSize = Enum.AutomaticSize.X,
@@ -1239,27 +1329,29 @@ function Library:CreateWindow(cfg)
 
 	local function SetLogoImage()
 		BuildLogo(logoHolder, 20, W._logoImg, W.Accent)
-		if W._toggleLogo then BuildLogo(W._toggleLogo, 20, W._logoImg, W.Accent) end
+		if W._toggleLogo then BuildLogo(W._toggleLogo, MOBILE and 30 or 26, W._logoImg, W.Accent) end
 	end
 	W:BindAccent(function()
 		if not W._logoImg then SetLogoImage() end
 	end)
 
-	function W:SetLogo(src)
+	function W:SetLogo(src, silent)
 		if src == nil or src == "" then
 			W._logoSrc, W._logoImg = nil, nil
 			SetLogoImage()
-			Persist("logo", "")
+			if not silent then Persist("logo", "") end
 			return true
 		end
 		local res = ResolveImage(src, "logo", true)
 		if not res then
-			W:Notify({ Title = "Logo", Content = "Не удалось загрузить картинку. Укажите id, прямую ссылку или путь к файлу.", Duration = 4 })
+			if not silent then
+				W:Notify({ Title = "Logo", Content = "Не удалось загрузить картинку. Укажите id, прямую ссылку или путь к файлу.", Duration = 4 })
+			end
 			return false
 		end
 		W._logoSrc, W._logoImg = src, res
 		SetLogoImage()
-		Persist("logo", tostring(src))
+		if not silent then Persist("logo", tostring(src)) end
 		return true
 	end
 
@@ -1387,7 +1479,7 @@ function Library:CreateWindow(cfg)
 
 	local toggle
 	if cfg.ToggleButton ~= false then
-		local tsize = MOBILE and 44 or 36
+		local tsize = MOBILE and 52 or 44
 		toggle = New("TextButton", {
 			Name = "Toggle",
 			AnchorPoint = Vector2.new(1, 0.5),
@@ -1399,11 +1491,11 @@ function Library:CreateWindow(cfg)
 			Parent = gui,
 		})
 		Corner(toggle, UDim.new(1, 0))
-		Stroke(toggle, THEME.Line, 0, 1.5)
+		NeonRing(toggle, 2)
 		W._toggleLogo = New("Frame", {
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.fromOffset(24, 24),
+			Size = UDim2.fromOffset(MOBILE and 34 or 30, MOBILE and 34 or 30),
 			BackgroundTransparency = 1,
 			Parent = toggle,
 		})
@@ -1847,7 +1939,7 @@ function Library:CreateWindow(cfg)
 		local branding = W._settings:SubTab("Branding")
 		local logo = branding:Section("Logo", "Left")
 		local logoBox = logo:AddTextBox({
-			Name = "Image", Placeholder = "id / url / file", Default = S.logo or "",
+			Name = "Image", Placeholder = "id / url / file", Default = tostring(S.logo ~= nil and S.logo or (cfg.Logo ~= false and (cfg.Logo or DEFAULT_LOGO)) or ""),
 			Callback = function(v)
 				task.spawn(function() W:SetLogo(v) end)
 			end,
@@ -1899,8 +1991,15 @@ function Library:CreateWindow(cfg)
 		})
 	end
 
-	local logoSrc = (S.logo and S.logo ~= "") and S.logo or cfg.Logo
-	if logoSrc then task.spawn(function() W:SetLogo(logoSrc) end) end
+	local logoSrc
+	if cfg.Logo ~= false then
+		if S.logo ~= nil then
+			logoSrc = (S.logo ~= "") and S.logo or nil
+		else
+			logoSrc = cfg.Logo or DEFAULT_LOGO
+		end
+	end
+	if logoSrc then task.spawn(function() W:SetLogo(logoSrc, true) end) end
 	local bgSrc = (S.bg and S.bg ~= "") and S.bg or cfg.Background
 	if bgSrc then task.spawn(function() W:SetBackground(bgSrc) end) end
 
