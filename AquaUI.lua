@@ -1,34 +1,44 @@
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local HttpService = game:GetService("HttpService")
-local Stats = game:GetService("Stats")
-local CoreGui = game:GetService("CoreGui")
+local Library = { Flags = {}, Options = {}, Listeners = {} }
+
+local cloneref = cloneref or function(x) return x end
+local function Service(n) return cloneref(game:GetService(n)) end
+
+local Players = Service("Players")
+local RunService = Service("RunService")
+local UserInputService = Service("UserInputService")
+local TweenService = Service("TweenService")
+local HttpService = Service("HttpService")
+local Stats = Service("Stats")
+local CoreGui = Service("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
 
-local Aqua = {}
-Aqua.__index = Aqua
+local MOBILE = (function()
+	local p
+	pcall(function() p = UserInputService:GetPlatform() end)
+	if p == Enum.Platform.IOS or p == Enum.Platform.Android then return true end
+	return UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+end)()
 
-local MOBILE = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 local ROW_H = MOBILE and 44 or 38
 local PAD = 14
 local TS = MOBILE and 14 or 13
+local HAS_FS = (writefile and readfile and isfile and isfolder and makefolder) and true or false
 
 local THEME = {
 	BG = Color3.fromRGB(14, 14, 16),
 	Panel = Color3.fromRGB(19, 19, 22),
 	Row = Color3.fromRGB(25, 25, 29),
 	Hover = Color3.fromRGB(34, 34, 40),
+	Select = Color3.fromRGB(30, 30, 35),
 	Line = Color3.fromRGB(44, 44, 52),
 	Text = Color3.fromRGB(240, 240, 244),
 	Sub = Color3.fromRGB(132, 132, 142),
 	Off = Color3.fromRGB(40, 40, 47),
-	Knob = Color3.fromRGB(18, 18, 20),
 }
 
 local ACCENTS = {
+	Blue = Color3.fromRGB(104, 122, 255),
 	White = Color3.fromRGB(236, 236, 240),
 	Aqua = Color3.fromRGB(100, 200, 255),
 	Violet = Color3.fromRGB(170, 140, 255),
@@ -36,7 +46,7 @@ local ACCENTS = {
 	Rose = Color3.fromRGB(255, 130, 160),
 	Amber = Color3.fromRGB(255, 195, 90),
 }
-local ACCENT_NAMES = { "White", "Aqua", "Violet", "Green", "Rose", "Amber" }
+local ACCENT_NAMES = { "Blue", "White", "Aqua", "Violet", "Green", "Rose", "Amber" }
 
 local function New(class, props, children)
 	local inst = Instance.new(class)
@@ -50,10 +60,21 @@ local function New(class, props, children)
 end
 
 local function Corner(parent, r)
+	if typeof(parent) == "UDim" then
+		return New("UICorner", { CornerRadius = parent })
+	end
 	return New("UICorner", { CornerRadius = r or UDim.new(0, 10), Parent = parent })
 end
 
 local function Stroke(parent, color, transparency, thickness)
+	if typeof(parent) == "Color3" then
+		return New("UIStroke", {
+			Color = parent,
+			Transparency = color or 0,
+			Thickness = transparency or 1,
+			ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		})
+	end
 	return New("UIStroke", {
 		Color = color or THEME.Line,
 		Transparency = transparency or 0,
@@ -69,7 +90,13 @@ local function Tween(obj, props, t, style)
 	return tw
 end
 
-local function Pointer(i)
+local function Safe(fn, ...)
+	if type(fn) ~= "function" then return end
+	local ok, err = pcall(fn, ...)
+	if not ok then warn("[AquaUI] " .. tostring(err)) end
+end
+
+local function IsPointer(i)
 	return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch
 end
 
@@ -77,18 +104,71 @@ local function Moving(i)
 	return i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch
 end
 
-local function ResolveImage(v)
-	if not v then return nil end
-	if type(v) == "number" then return "rbxassetid://" .. v end
-	if type(v) == "string" then
-		if v:find("^rbxasset") or v:find("^http") then return v end
+local function Tap(btn, fn)
+	btn.InputBegan:Connect(function(i)
+		if not IsPointer(i) then return end
+		local start = i.Position
+		local c
+		c = i.Changed:Connect(function()
+			if i.UserInputState ~= Enum.UserInputState.End then return end
+			c:Disconnect()
+			if (i.Position - start).Magnitude <= 10 then task.spawn(fn) end
+		end)
+	end)
+end
+
+local function TextOn(c)
+	local lum = 0.299 * c.R + 0.587 * c.G + 0.114 * c.B
+	return lum > 0.62 and Color3.fromRGB(18, 18, 20) or Color3.new(1, 1, 1)
+end
+
+local CACHE_FOLDER = "AquaUI"
+
+local function UrlHash(s)
+	local h = 5381
+	for i = 1, #s do
+		h = (h * 33 + s:byte(i)) % 4294967296
+	end
+	return tostring(h)
+end
+
+local function IsImageData(d)
+	if type(d) ~= "string" or #d < 8 then return false end
+	return d:sub(1, 4) == "\137PNG" or d:sub(1, 2) == "\255\216" or d:sub(1, 4) == "GIF8"
+end
+
+local function ResolveImage(src, kind, download)
+	if src == nil or src == "" then return nil end
+	if type(src) == "number" then return "rbxassetid://" .. src end
+	if type(src) ~= "string" then return nil end
+	if src:match("^rbxassetid://") or src:match("^rbxasset://") or src:match("^rbxthumb://") then return src end
+	if src:match("^%d+$") then return "rbxassetid://" .. src end
+	if not download then return nil end
+	local getasset = getcustomasset or getsynasset
+	if src:match("^https?://") then
+		if not (HAS_FS and getasset) then return nil end
+		local path = CACHE_FOLDER .. "/" .. (kind or "img") .. "_" .. UrlHash(src) .. ".png"
+		local okc, cached = pcall(function()
+			if isfile(path) then return getasset(path) end
+			return nil
+		end)
+		if okc and cached then return cached end
+		local ok, data = pcall(function() return game:HttpGet(src) end)
+		if not ok or not IsImageData(data) then return nil end
+		local ok2, asset = pcall(function()
+			if not isfolder(CACHE_FOLDER) then makefolder(CACHE_FOLDER) end
+			writefile(path, data)
+			return getasset(path)
+		end)
+		if ok2 and asset then return asset end
+		return nil
+	end
+	if getasset and isfile then
 		local ok, res = pcall(function()
-			if isfile and getcustomasset and isfile(v) then
-				return getcustomasset(v)
-			end
+			if isfile(src) then return getasset(src) end
+			return nil
 		end)
 		if ok and res then return res end
-		if tonumber(v) then return "rbxassetid://" .. v end
 	end
 	return nil
 end
@@ -108,7 +188,7 @@ local function Bar(parent, w, h, rot, pos, color, anchor)
 end
 
 local function Icon(parent, id, size, color, pos)
-	local img = ResolveImage(id)
+	local img = ResolveImage(id, "icon", false)
 	if not img then return nil end
 	return New("ImageLabel", {
 		BackgroundTransparency = 1,
@@ -134,11 +214,52 @@ local function Chevron(parent, color)
 	return c
 end
 
+local function DrawGear(parent, size, color)
+	local holder = New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(size, size),
+		BackgroundTransparency = 1,
+		Parent = parent,
+	})
+	local parts = {}
+	local r = size * 0.4
+	for i = 0, 7 do
+		local a = math.rad(i * 45)
+		local t = New("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0.5, math.cos(a) * r, 0.5, math.sin(a) * r),
+			Size = UDim2.fromOffset(size * 0.2, size * 0.26),
+			Rotation = i * 45 + 90,
+			BackgroundColor3 = color,
+			BorderSizePixel = 0,
+			Parent = holder,
+		})
+		Corner(t, UDim.new(0, 1))
+		table.insert(parts, t)
+	end
+	local ring = New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(size * 0.5, size * 0.5),
+		BackgroundTransparency = 1,
+		Parent = holder,
+	})
+	Corner(ring, UDim.new(1, 0))
+	local st = Stroke(ring, color, 0, math.max(2, size * 0.14))
+	local obj = { Holder = holder }
+	function obj:SetColor(c)
+		for _, p in ipairs(parts) do p.BackgroundColor3 = c end
+		st.Color = c
+	end
+	return obj
+end
+
 local function MakeDraggable(handle, target)
 	local state = { moved = false }
 	local dragging, startPos, startInput
 	handle.InputBegan:Connect(function(input)
-		if Pointer(input) then
+		if IsPointer(input) then
 			dragging, state.moved = true, false
 			startInput, startPos = input.Position, target.Position
 			input.Changed:Connect(function()
@@ -176,14 +297,13 @@ local function BuildLogo(holder, size, image, color)
 	for _, c in ipairs(holder:GetChildren()) do
 		c:Destroy()
 	end
-	local img = ResolveImage(image)
-	if img then
+	if image then
 		New("ImageLabel", {
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(0.5, 0.5),
 			Size = UDim2.fromOffset(size, size),
 			BackgroundTransparency = 1,
-			Image = img,
+			Image = image,
 			ScaleType = Enum.ScaleType.Fit,
 			Parent = holder,
 		})
@@ -210,9 +330,46 @@ local function BuildLogo(holder, size, image, color)
 	Corner(circ, UDim.new(1, 0))
 end
 
+function Library:OnChanged(flag, fn)
+	Library.Listeners[flag] = Library.Listeners[flag] or {}
+	table.insert(Library.Listeners[flag], fn)
+	return function()
+		local list = Library.Listeners[flag]
+		if not list then return end
+		for i, f in ipairs(list) do
+			if f == fn then
+				table.remove(list, i)
+				break
+			end
+		end
+	end
+end
+
+function Library:_emit(flag, value)
+	local list = Library.Listeners[flag]
+	if not list then return end
+	for _, fn in ipairs({ table.unpack(list) }) do
+		Safe(fn, value)
+	end
+end
+
+function Library:Get(flag) return Library.Flags[flag] end
+
+function Library:Set(flag, value, silent)
+	local obj = Library.Options[flag]
+	if not obj then return false end
+	obj:Set(value, silent)
+	return true
+end
+
+function Library:Notify(cfg)
+	local W = Library.Active
+	if W then W:Notify(cfg) end
+end
+
 local ticks = {}
 
-local function CreateWatermark(gui, win, yOffset)
+local function CreateWatermark(gui, W, yOffset)
 	local bar = New("Frame", {
 		Name = "Watermark",
 		AnchorPoint = Vector2.new(0.5, 0),
@@ -264,13 +421,13 @@ local function CreateWatermark(gui, win, yOffset)
 		return l
 	end
 
-	local nameL = Chip(1, win.Accent)
+	local nameL = Chip(1, W.Accent)
 	local fpsL = Chip(2, THEME.Text)
 	local pingL = Chip(3, THEME.Text)
 	local timeL = Chip(4, THEME.Sub)
 	nameL.Text = LocalPlayer.DisplayName
 	nameL.Font = Enum.Font.GothamBold
-	table.insert(win._accentFns, function(c) nameL.TextColor3 = c end)
+	W:BindAccent(function(c) nameL.TextColor3 = c end)
 
 	content:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
 		bar.Size = UDim2.fromOffset(content.AbsoluteSize.X + 8, 28)
@@ -296,19 +453,16 @@ local function CreateWatermark(gui, win, yOffset)
 	return bar
 end
 
-local function Elements(container, win, cardRef)
+local function Elements(container, W, cardRef)
 	local E = {}
 	local order = 0
-	local function nextOrder()
-		order += 1
-		return order
-	end
 
 	local function Row(h)
+		order += 1
 		local r = New("Frame", {
 			Size = UDim2.new(1, 0, 0, h or ROW_H),
 			BackgroundColor3 = THEME.Row,
-			LayoutOrder = nextOrder(),
+			LayoutOrder = order,
 			Parent = container,
 		})
 		Corner(r, UDim.new(0, 10))
@@ -316,129 +470,205 @@ local function Elements(container, win, cardRef)
 		return r
 	end
 
-	local function RowLabel(parent, text, y, h)
+	local function Lbl(parent, text, reserve, y, h)
 		return New("TextLabel", {
 			BackgroundTransparency = 1,
 			Position = UDim2.fromOffset(PAD, y or 0),
-			Size = UDim2.new(1, -(PAD + 70), 0, h or ROW_H),
+			Size = UDim2.new(1, -(PAD + (reserve or 70)), 0, h or ROW_H),
 			Font = Enum.Font.Gotham,
 			TextSize = TS,
 			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
 			TextColor3 = THEME.Text,
-			Text = text,
+			Text = tostring(text or ""),
 			Parent = parent,
 		})
 	end
 
+	local function Hit(parent, h)
+		return New("TextButton", {
+			BackgroundTransparency = 1,
+			Size = h and UDim2.new(1, 0, 0, h) or UDim2.fromScale(1, 1),
+			Text = "",
+			AutoButtonColor = false,
+			ZIndex = 2,
+			Parent = parent,
+		})
+	end
+
+	local function Field(parent, w)
+		return New("Frame", {
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -10, 0.5, 0),
+			Size = UDim2.fromOffset(w, MOBILE and 32 or 28),
+			BackgroundColor3 = THEME.Panel,
+			BorderSizePixel = 0,
+			ZIndex = 3,
+			Parent = parent,
+		}, { Corner(UDim.new(0, 8)), Stroke(THEME.Line, 0) })
+	end
+
 	local function Register(row, text)
-		table.insert(win._search, { row = row, text = tostring(text):lower(), card = cardRef })
+		table.insert(W._search, { row = row, text = tostring(text or ""):lower(), card = cardRef })
+	end
+
+	local function Decimals(inc)
+		local s = tostring(inc)
+		local p = s:find("%.")
+		return p and (#s - p) or 0
+	end
+
+	local function RegisterFlag(cfg, obj)
+		if cfg.Flag then
+			Library.Options[cfg.Flag] = obj
+			Library.Flags[cfg.Flag] = obj.Value
+		end
+	end
+
+	local function Commit(cfg, obj, silent)
+		if cfg.Flag then
+			Library.Flags[cfg.Flag] = obj.Value
+			W:_setFlag(cfg.Flag, obj.Value)
+		end
+		if not silent then
+			Safe(cfg.Callback, obj.Value)
+			if cfg.Flag then Library:_emit(cfg.Flag, obj.Value) end
+		end
 	end
 
 	function E:AddLabel(text)
 		local r = Row(30)
-		local l = RowLabel(r, text, 0, 30)
+		local l = Lbl(r, text, PAD)
 		l.Size = UDim2.new(1, -(PAD * 2), 0, 30)
 		l.TextColor3 = THEME.Sub
+		l.TextSize = 12
 		Register(r, text)
-	end
-
-	function E:AddButton(text, callback)
-		local r = Row()
-		local b = New("TextButton", {
-			BackgroundTransparency = 1,
-			Size = UDim2.fromScale(1, 1),
-			Font = Enum.Font.GothamMedium,
-			TextSize = TS,
-			TextColor3 = THEME.Text,
-			Text = text,
-			Parent = r,
-		})
-		b.MouseEnter:Connect(function() Tween(r, { BackgroundColor3 = THEME.Hover }) end)
-		b.MouseLeave:Connect(function() Tween(r, { BackgroundColor3 = THEME.Row }) end)
-		b.MouseButton1Click:Connect(function()
-			Tween(r, { BackgroundColor3 = win.Accent }, 0.07)
-			task.delay(0.1, function() Tween(r, { BackgroundColor3 = THEME.Row }, 0.25) end)
-			if callback then task.spawn(callback) end
-		end)
-		Register(r, text)
-	end
-
-	function E:AddToggle(text, default, callback, flag)
-		local r = Row()
-		RowLabel(r, text)
-		local saved = flag and win._cfg.flags[flag]
-		local state = default and true or false
-		if saved ~= nil then state = saved end
-		local track = New("TextButton", {
-			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.new(1, -12, 0.5, 0),
-			Size = UDim2.fromOffset(44, 24),
-			Text = "",
-			AutoButtonColor = false,
-			BackgroundColor3 = THEME.Off,
-			Parent = r,
-		})
-		Corner(track, UDim.new(1, 0))
-		local knob = New("Frame", {
-			AnchorPoint = Vector2.new(0, 0.5),
-			Size = UDim2.fromOffset(18, 18),
-			Parent = track,
-		})
-		Corner(knob, UDim.new(1, 0))
-		local function Refresh(animate)
-			local props = {
-				BackgroundColor3 = state and win.Accent or THEME.Off,
-			}
-			local kprops = {
-				Position = UDim2.new(0, state and 23 or 3, 0.5, 0),
-				BackgroundColor3 = state and THEME.Knob or Color3.new(1, 1, 1),
-			}
-			if animate then
-				Tween(track, props)
-				Tween(knob, kprops, 0.2)
-			else
-				for k, v in pairs(props) do track[k] = v end
-				for k, v in pairs(kprops) do knob[k] = v end
-			end
-		end
-		Refresh(false)
-		table.insert(win._accentFns, function() Refresh(false) end)
 		local obj = {}
-		function obj:Set(v, silent)
-			state = v and true or false
-			Refresh(true)
-			if flag then win:SetFlag(flag, state) end
-			if callback and not silent then task.spawn(callback, state) end
-		end
-		function obj:Get() return state end
-		track.MouseButton1Click:Connect(function() obj:Set(not state) end)
-		if saved ~= nil and callback then task.defer(callback, state) end
-		Register(r, text)
+		function obj:Set(t) l.Text = tostring(t) end
 		return obj
 	end
 
-	function E:AddSlider(text, min, max, default, callback, suffix, flag)
+	function E:AddButton(cfg)
+		cfg = type(cfg) == "string" and { Name = cfg } or cfg
+		local r = Row()
+		local fieldW = MOBILE and 96 or 90
+		Lbl(r, cfg.Name, fieldW + 24)
+		local f = Field(r, fieldW)
+		f.BackgroundColor3 = Color3.new(1, 1, 1)
+		local grad = New("UIGradient", { Rotation = 90, Parent = f })
+		local flash = New("Frame", {
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ZIndex = 4,
+			Parent = f,
+		}, { Corner(UDim.new(0, 8)) })
+		local txt = New("TextLabel", {
+			BackgroundTransparency = 1,
+			Size = UDim2.fromScale(1, 1),
+			Font = Enum.Font.GothamMedium,
+			Text = cfg.ButtonText or "Run",
+			TextSize = TS,
+			ZIndex = 5,
+			Parent = f,
+		})
+		W:BindAccent(function(c)
+			grad.Color = ColorSequence.new(c:Lerp(Color3.new(1, 1, 1), 0.22), c:Lerp(Color3.new(0, 0, 0), 0.3))
+			txt.TextColor3 = TextOn(c)
+		end)
+		local hit = Hit(r)
+		hit.MouseEnter:Connect(function() Tween(r, { BackgroundColor3 = THEME.Hover }) end)
+		hit.MouseLeave:Connect(function() Tween(r, { BackgroundColor3 = THEME.Row }) end)
+		Tap(hit, function()
+			flash.BackgroundTransparency = 0.6
+			Tween(flash, { BackgroundTransparency = 1 }, 0.35)
+			Safe(cfg.Callback)
+		end)
+		Register(r, cfg.Name)
+		return {}
+	end
+
+	function E:AddToggle(cfg)
+		cfg = type(cfg) == "string" and { Name = cfg } or cfg
+		local r = Row()
+		local TW, TH = 46, MOBILE and 26 or 24
+		Lbl(r, cfg.Name, TW + 24)
+		local pill = New("Frame", {
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -12, 0.5, 0),
+			Size = UDim2.fromOffset(TW, TH),
+			BackgroundColor3 = THEME.Off,
+			BorderSizePixel = 0,
+			Parent = r,
+		}, { Corner(UDim.new(1, 0)) })
+		local knob = New("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0, TH / 2, 0.5, 0),
+			Size = UDim2.fromOffset(TH - 8, TH - 8),
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			BorderSizePixel = 0,
+			Parent = pill,
+		}, { Corner(UDim.new(1, 0)) })
+		local obj = { Value = false, Type = "Toggle" }
+		local function render(animate)
+			local on = obj.Value
+			local p = { BackgroundColor3 = on and W.Accent or THEME.Off }
+			local k = {
+				Position = UDim2.new(0, on and (TW - TH / 2) or (TH / 2), 0.5, 0),
+				BackgroundColor3 = on and TextOn(W.Accent) or Color3.new(1, 1, 1),
+			}
+			if animate then
+				Tween(pill, p, 0.15)
+				Tween(knob, k, 0.15)
+			else
+				for key, v in pairs(p) do pill[key] = v end
+				for key, v in pairs(k) do knob[key] = v end
+			end
+		end
+		function obj:Set(v, silent)
+			obj.Value = v and true or false
+			render(true)
+			Commit(cfg, obj, silent)
+		end
+		function obj:Get() return obj.Value end
+		W:BindAccent(function() render(false) end)
+		Tap(Hit(r), function() obj:Set(not obj.Value) end)
+		local saved = cfg.Flag and W._cfg.flags[cfg.Flag]
+		obj.Value = (saved ~= nil) and saved or (cfg.Default and true or false)
+		render(false)
+		RegisterFlag(cfg, obj)
+		if obj.Value then Commit(cfg, obj, false) end
+		Register(r, cfg.Name)
+		return obj
+	end
+
+	function E:AddSlider(cfg)
+		local min, max = cfg.Min or 0, cfg.Max or 100
+		local inc = cfg.Increment or 1
+		local dec = Decimals(inc)
 		local h = ROW_H + 16
 		local r = Row(h)
-		local lbl = RowLabel(r, text, 8, 18)
-		lbl.Size = UDim2.new(1, -(PAD + 80), 0, 18)
-		local valueLabel = New("TextLabel", {
+		local lbl = Lbl(r, cfg.Name, 90, 8, 18)
+		lbl.Size = UDim2.new(1, -(PAD + 90), 0, 18)
+		local val = New("TextLabel", {
 			BackgroundTransparency = 1,
 			AnchorPoint = Vector2.new(1, 0),
 			Position = UDim2.new(1, -PAD, 0, 8),
-			Size = UDim2.fromOffset(70, 18),
+			Size = UDim2.fromOffset(80, 18),
 			Font = Enum.Font.GothamMedium,
 			TextSize = 12,
-			TextColor3 = win.Accent,
+			TextColor3 = W.Accent,
 			TextXAlignment = Enum.TextXAlignment.Right,
 			Parent = r,
 		})
 		local hit = New("TextButton", {
 			Position = UDim2.fromOffset(PAD, h - 30),
-			Size = UDim2.new(1, -(PAD * 2), 0, 24),
+			Size = UDim2.new(1, -(PAD * 2), 0, 26),
 			BackgroundTransparency = 1,
 			Text = "",
 			AutoButtonColor = false,
+			ZIndex = 2,
 			Parent = r,
 		})
 		local track = New("Frame", {
@@ -446,241 +676,289 @@ local function Elements(container, win, cardRef)
 			Position = UDim2.fromScale(0, 0.5),
 			Size = UDim2.new(1, 0, 0, 6),
 			BackgroundColor3 = THEME.Off,
+			BorderSizePixel = 0,
 			Parent = hit,
-		})
-		Corner(track, UDim.new(1, 0))
-		local fill = New("Frame", { BackgroundColor3 = win.Accent, Size = UDim2.fromScale(0, 1), Parent = track })
-		Corner(fill, UDim.new(1, 0))
-		table.insert(win._accentFns, function(c)
+		}, { Corner(UDim.new(1, 0)) })
+		local fill = New("Frame", {
+			Size = UDim2.fromScale(0, 1),
+			BackgroundColor3 = W.Accent,
+			BorderSizePixel = 0,
+			Parent = track,
+		}, { Corner(UDim.new(1, 0)) })
+		W:BindAccent(function(c)
 			fill.BackgroundColor3 = c
-			valueLabel.TextColor3 = c
+			val.TextColor3 = c
 		end)
-		local saved = flag and win._cfg.flags[flag]
-		local value = saved or default or min
-		local function Set(v)
-			value = math.clamp(math.floor(v + 0.5), min, max)
-			fill.Size = UDim2.fromScale((value - min) / (max - min), 1)
-			valueLabel.Text = tostring(value) .. (suffix or "")
+		local obj = { Value = min, Type = "Slider" }
+		local function snap(v)
+			v = math.clamp(v, min, max)
+			v = math.floor((v - min) / inc + 0.5) * inc + min
+			return tonumber(string.format("%." .. dec .. "f", math.clamp(v, min, max)))
 		end
-		Set(value)
-		local sliding = false
-		local function Update(x)
-			local rel = math.clamp((x - hit.AbsolutePosition.X) / hit.AbsoluteSize.X, 0, 1)
-			Set(min + (max - min) * rel)
-			if flag then win:SetFlag(flag, value) end
-			if callback then task.spawn(callback, value) end
+		local function render()
+			fill.Size = UDim2.fromScale((obj.Value - min) / math.max(max - min, 1e-9), 1)
+			val.Text = string.format("%." .. dec .. "f", obj.Value) .. (cfg.Suffix or "")
+		end
+		function obj:Set(v, silent)
+			obj.Value = snap(tonumber(v) or min)
+			render()
+			Commit(cfg, obj, silent)
+		end
+		function obj:Get() return obj.Value end
+		local sliding, scrollRef = false, nil
+		local function update(x)
+			local rel = math.clamp((x - hit.AbsolutePosition.X) / math.max(hit.AbsoluteSize.X, 1), 0, 1)
+			obj:Set(min + (max - min) * rel)
+		end
+		local function stop()
+			sliding = false
+			if scrollRef then
+				scrollRef.ScrollingEnabled = true
+				scrollRef = nil
+			end
 		end
 		hit.InputBegan:Connect(function(i)
-			if Pointer(i) then sliding = true Update(i.Position.X) end
+			if IsPointer(i) then
+				sliding = true
+				scrollRef = hit:FindFirstAncestorOfClass("ScrollingFrame")
+				if scrollRef then scrollRef.ScrollingEnabled = false end
+				update(i.Position.X)
+			end
 		end)
 		UserInputService.InputEnded:Connect(function(i)
-			if Pointer(i) then sliding = false end
+			if IsPointer(i) and sliding then stop() end
 		end)
 		UserInputService.InputChanged:Connect(function(i)
-			if sliding and Moving(i) then Update(i.Position.X) end
+			if sliding and Moving(i) then update(i.Position.X) end
 		end)
-		if saved ~= nil and callback then task.defer(callback, value) end
-		Register(r, text)
-		return { Set = Set, Get = function() return value end }
+		local saved = cfg.Flag and W._cfg.flags[cfg.Flag]
+		obj.Value = snap((saved ~= nil) and saved or cfg.Default or min)
+		render()
+		RegisterFlag(cfg, obj)
+		if saved ~= nil then Commit(cfg, obj, false) end
+		Register(r, cfg.Name)
+		return obj
 	end
 
-	function E:AddDropdown(text, options, default, callback, flag)
+	function E:AddTextBox(cfg)
+		local r = Row()
+		local fieldW = MOBILE and 130 or 150
+		Lbl(r, cfg.Name, fieldW + 24)
+		local f = Field(r, fieldW)
+		local st = f:FindFirstChildOfClass("UIStroke")
+		local tb = New("TextBox", {
+			BackgroundTransparency = 1,
+			Size = UDim2.new(1, -16, 1, 0),
+			Position = UDim2.fromOffset(8, 0),
+			Font = Enum.Font.Gotham,
+			TextSize = TS - 1,
+			TextColor3 = THEME.Text,
+			PlaceholderText = cfg.Placeholder or "...",
+			PlaceholderColor3 = THEME.Sub,
+			Text = "",
+			ClearTextOnFocus = false,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			ZIndex = 4,
+			Parent = f,
+		})
+		local obj = { Value = "", Type = "TextBox" }
+		function obj:Set(t, silent)
+			tb.Text = tostring(t or "")
+			obj.Value = tb.Text
+			Commit(cfg, obj, silent)
+		end
+		function obj:Get() return obj.Value end
+		tb.Focused:Connect(function()
+			st.Color = W.Accent
+		end)
+		tb.FocusLost:Connect(function()
+			st.Color = THEME.Line
+			obj.Value = tb.Text
+			Commit(cfg, obj, false)
+		end)
+		local saved = cfg.Flag and W._cfg.flags[cfg.Flag]
+		tb.Text = tostring((saved ~= nil) and saved or cfg.Default or "")
+		obj.Value = tb.Text
+		RegisterFlag(cfg, obj)
+		if saved ~= nil then Commit(cfg, obj, false) end
+		Register(r, cfg.Name)
+		return obj
+	end
+
+	function E:AddDropdown(cfg)
 		local r = Row()
 		r.ClipsDescendants = true
-		local head = New("TextButton", {
-			BackgroundTransparency = 1,
-			Size = UDim2.new(1, 0, 0, ROW_H),
-			Text = "",
-			Parent = r,
-		})
-		RowLabel(head, text)
-		local saved = flag and win._cfg.flags[flag]
+		local fieldW = MOBILE and 130 or 150
+		Lbl(r, cfg.Name, fieldW + 24)
+		local f = Field(r, fieldW)
 		local cur = New("TextLabel", {
 			BackgroundTransparency = 1,
-			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.new(1, -12, 0.5, 0),
-			Size = UDim2.fromOffset(130, 20),
-			Font = Enum.Font.GothamMedium,
-			TextSize = 12,
-			TextColor3 = win.Accent,
-			TextXAlignment = Enum.TextXAlignment.Right,
-			Text = tostring(saved or default or options[1]),
-			Parent = head,
+			Position = UDim2.fromOffset(10, 0),
+			Size = UDim2.new(1, -30, 1, 0),
+			Font = Enum.Font.Gotham,
+			TextSize = TS - 1,
+			TextColor3 = THEME.Text,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Text = "",
+			ZIndex = 4,
+			Parent = f,
 		})
-		table.insert(win._accentFns, function(c) cur.TextColor3 = c end)
-		local optH = MOBILE and 34 or 28
+		local chev = Chevron(f, THEME.Sub)
+		chev.Position = UDim2.new(1, -8, 0.5, 0)
+		chev.ZIndex = 4
+		local options = cfg.Options or {}
+		local optH = MOBILE and 36 or 30
+		local obj = { Value = nil, Type = "Dropdown", Options = options }
 		local open = false
-		for i, opt in ipairs(options) do
-			local ob = New("TextButton", {
+		local btns = {}
+		local function render()
+			cur.Text = tostring(obj.Value or "")
+			for o, b in pairs(btns) do
+				b.TextColor3 = (o == obj.Value) and W.Accent or THEME.Text
+			end
+		end
+		function obj:Set(v, silent)
+			obj.Value = v
+			render()
+			Commit(cfg, obj, silent)
+		end
+		function obj:Get() return obj.Value end
+		W:BindAccent(render)
+		for i, o in ipairs(options) do
+			local b = New("TextButton", {
 				Position = UDim2.new(0, 6, 0, ROW_H + (i - 1) * optH),
 				Size = UDim2.new(1, -12, 0, optH - 2),
 				BackgroundColor3 = THEME.Panel,
 				Font = Enum.Font.Gotham,
-				TextSize = 12,
+				TextSize = TS - 1,
 				TextColor3 = THEME.Text,
-				Text = tostring(opt),
+				Text = tostring(o),
 				AutoButtonColor = false,
 				Parent = r,
-			})
-			Corner(ob, UDim.new(0, 8))
-			ob.MouseButton1Click:Connect(function()
-				cur.Text = tostring(opt)
+			}, { Corner(UDim.new(0, 8)) })
+			btns[o] = b
+			Tap(b, function()
 				open = false
 				Tween(r, { Size = UDim2.new(1, 0, 0, ROW_H) })
-				if flag then win:SetFlag(flag, opt) end
-				if callback then task.spawn(callback, opt) end
+				chev.Rotation = 0
+				obj:Set(o)
 			end)
 		end
-		head.MouseButton1Click:Connect(function()
+		Tap(Hit(r, ROW_H), function()
 			open = not open
 			Tween(r, { Size = UDim2.new(1, 0, 0, open and (ROW_H + 8 + #options * optH) or ROW_H) })
+			Tween(chev, { Rotation = open and 180 or 0 })
 		end)
-		if saved ~= nil and callback then task.defer(callback, saved) end
-		Register(r, text)
-	end
-
-	function E:AddInput(text, placeholder, callback, flag)
-		local r = Row()
-		RowLabel(r, text)
-		local saved = flag and win._cfg.flags[flag]
-		local box = New("TextBox", {
-			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.new(1, -10, 0.5, 0),
-			Size = UDim2.new(0.45, 0, 0, ROW_H - 12),
-			BackgroundColor3 = THEME.Panel,
-			Font = Enum.Font.Gotham,
-			TextSize = 12,
-			TextColor3 = THEME.Text,
-			PlaceholderText = placeholder or "",
-			PlaceholderColor3 = THEME.Sub,
-			Text = saved or "",
-			ClearTextOnFocus = false,
-			Parent = r,
-		})
-		Corner(box, UDim.new(0, 8))
-		Stroke(box, THEME.Line, 0)
-		box.FocusLost:Connect(function()
-			if flag then win:SetFlag(flag, box.Text) end
-			if callback then task.spawn(callback, box.Text) end
-		end)
-		if saved ~= nil and callback then task.defer(callback, saved) end
-		Register(r, text)
-		return box
-	end
-
-	function E:AddGroup(title, groupIcon, startOpen)
-		local g = New("Frame", {
-			Size = UDim2.new(1, 0, 0, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
-			BackgroundTransparency = 1,
-			LayoutOrder = nextOrder(),
-			Parent = container,
-		}, { New("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }) })
-		local head = New("TextButton", {
-			Size = UDim2.new(1, 0, 0, MOBILE and 32 or 26),
-			BackgroundTransparency = 1,
-			Text = "",
-			LayoutOrder = 0,
-			Parent = g,
-		})
-		Icon(head, groupIcon, 16, THEME.Text, UDim2.new(0, 0, 0.5, 0))
-		New("TextLabel", {
-			BackgroundTransparency = 1,
-			Position = UDim2.fromOffset(groupIcon and 24 or 0, 0),
-			Size = UDim2.new(1, -40, 1, 0),
-			Font = Enum.Font.GothamMedium,
-			TextSize = TS,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = THEME.Text,
-			Text = title,
-			Parent = head,
-		})
-		local chev = Chevron(head)
-		chev.Rotation = (startOpen == false) and 180 or 0
-		local body = New("Frame", {
-			Size = UDim2.new(1, 0, 0, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
-			BackgroundTransparency = 1,
-			LayoutOrder = 1,
-			Visible = startOpen ~= false,
-			Parent = g,
-		}, { New("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }) })
-		head.MouseButton1Click:Connect(function()
-			body.Visible = not body.Visible
-			Tween(chev, { Rotation = body.Visible and 0 or 180 })
-		end)
-		return Elements(body, win, cardRef)
+		local saved = cfg.Flag and W._cfg.flags[cfg.Flag]
+		obj.Value = (saved ~= nil) and saved or cfg.Default or options[1]
+		render()
+		RegisterFlag(cfg, obj)
+		if saved ~= nil then Commit(cfg, obj, false) end
+		Register(r, cfg.Name)
+		return obj
 	end
 
 	return E
 end
 
-function Aqua:CreateWindow(opts)
-	opts = opts or {}
-	local win = setmetatable({
+function Library:CreateWindow(cfg)
+	cfg = cfg or {}
+	local env = (getgenv and getgenv()) or _G
+	if env.AquaUIWindow then
+		pcall(function() env.AquaUIWindow:Destroy() end)
+	end
+	for k in pairs(Library.Flags) do Library.Flags[k] = nil end
+	for k in pairs(Library.Options) do Library.Options[k] = nil end
+	for k in pairs(Library.Listeners) do Library.Listeners[k] = nil end
+	table.clear(ticks)
+
+	local NAME = tostring(cfg.Name or cfg.Title or "Aqua")
+	local FOLDER = cfg.ConfigFolder or "AquaUI"
+	CACHE_FOLDER = FOLDER
+
+	local W = {
 		Pages = {},
+		AllPages = {},
+		PageByName = {},
 		Scale = 1,
 		Open = true,
 		Minimized = false,
-		Accent = ACCENTS.White,
+		Accent = ACCENTS.Blue,
 		_search = {},
 		_accentFns = {},
-		_cards = {},
 		_manual = false,
 		_single = false,
 		_cfg = { settings = {}, flags = {} },
-	}, Aqua)
+		Conns = {},
+	}
 
-	win._cfgPath = (opts.Config ~= false) and ("AquaUI_" .. (tostring(opts.Title or "Aqua"):gsub("%W", "")) .. ".json") or nil
-	if win._cfgPath then
+	local cfgPath = FOLDER .. "/" .. NAME:gsub("%W", "") .. ".json"
+	if HAS_FS and cfg.SaveConfig ~= false then
 		pcall(function()
-			if isfile and isfile(win._cfgPath) then
-				local data = HttpService:JSONDecode(readfile(win._cfgPath))
+			if not isfolder(FOLDER) then makefolder(FOLDER) end
+			if isfile(cfgPath) then
+				local data = HttpService:JSONDecode(readfile(cfgPath))
 				if type(data) == "table" then
-					win._cfg.settings = data.settings or {}
-					win._cfg.flags = data.flags or {}
+					W._cfg.settings = data.settings or {}
+					W._cfg.flags = data.flags or {}
 				end
 			end
 		end)
 	end
-	local S = win._cfg.settings
+	local S = W._cfg.settings
 
-	function win:_save()
-		if not win._cfgPath or win._saving then return end
-		win._saving = true
+	function W:_save()
+		if not HAS_FS or cfg.SaveConfig == false or W._saving then return end
+		W._saving = true
 		task.delay(0.8, function()
-			win._saving = false
+			W._saving = false
 			pcall(function()
-				writefile(win._cfgPath, HttpService:JSONEncode(win._cfg))
+				writefile(cfgPath, HttpService:JSONEncode(W._cfg))
 			end)
 		end)
 	end
 
-	function win:SetFlag(flag, value)
-		win._cfg.flags[flag] = value
-		win:_save()
+	function W:_setFlag(flag, value)
+		W._cfg.flags[flag] = value
+		W:_save()
 	end
 
 	local function Persist(key, value)
 		S[key] = value
-		win:_save()
+		W:_save()
 	end
 
-	local accentSetting = opts.Accent
+	function W:BindAccent(fn)
+		table.insert(W._accentFns, fn)
+		fn(W.Accent)
+	end
+
+	function W:SetAccent(v)
+		local c = v
+		if type(v) == "string" then c = ACCENTS[v] end
+		if typeof(c) ~= "Color3" then return end
+		W.Accent = c
+		for _, f in ipairs(W._accentFns) do pcall(f, c) end
+	end
+
+	local accentSetting = cfg.Accent
 	if S.accent and ACCENTS[S.accent] then accentSetting = S.accent end
 	if type(accentSetting) == "string" and ACCENTS[accentSetting] then
-		win.Accent = ACCENTS[accentSetting]
+		W.Accent = ACCENTS[accentSetting]
 	elseif typeof(accentSetting) == "Color3" then
-		win.Accent = accentSetting
+		W.Accent = accentSetting
 	end
 
 	local gui = New("ScreenGui", {
 		Name = "AquaUI",
 		ResetOnSpawn = false,
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+		DisplayOrder = 1000,
 		Parent = GetParent(),
 	})
-	win.Gui = gui
+	W.Gui = gui
 
 	local conn = RunService.RenderStepped:Connect(function(dt)
 		for _, f in ipairs(ticks) do
@@ -688,13 +966,13 @@ function Aqua:CreateWindow(opts)
 		end
 	end)
 
-	local wmY = opts.WatermarkY or (MOBILE and 66 or 12)
-	if opts.Watermark ~= false then
-		win.WatermarkFrame = CreateWatermark(gui, win, wmY)
-		if S.watermark == false then win.WatermarkFrame.Visible = false end
+	local wmY = cfg.WatermarkY or (MOBILE and 66 or 12)
+	if cfg.Watermark ~= false then
+		W.WatermarkFrame = CreateWatermark(gui, W, wmY)
+		if S.watermark == false then W.WatermarkFrame.Visible = false end
 	end
 
-	local size = opts.Size or UDim2.fromOffset(620, 380)
+	local size = cfg.Size or UDim2.fromOffset(620, 380)
 
 	local main = New("Frame", {
 		Name = "Main",
@@ -709,9 +987,9 @@ function Aqua:CreateWindow(opts)
 	Corner(main, UDim.new(0, 16))
 	Stroke(main, THEME.Line, 0)
 	local uiScale = New("UIScale", { Scale = 1, Parent = main })
-	win.Main = main
+	W.Main = main
 
-	local bgOpacity = S.bgOpacity or opts.BackgroundOpacity or 0.2
+	local bgOpacity = S.bgOpacity or cfg.BackgroundOpacity or 0.2
 	local bgImage = New("ImageLabel", {
 		Name = "Background",
 		BackgroundTransparency = 1,
@@ -723,17 +1001,6 @@ function Aqua:CreateWindow(opts)
 		Parent = main,
 	})
 	Corner(bgImage, UDim.new(0, 16))
-
-	function win:SetBackground(v)
-		local img = ResolveImage(v)
-		bgImage.Image = img or ""
-		bgImage.Visible = img ~= nil
-	end
-	function win:SetBackgroundOpacity(v)
-		bgOpacity = math.clamp(v, 0, 1)
-		bgImage.ImageTransparency = 1 - bgOpacity
-	end
-	if opts.Background then win:SetBackground(opts.Background) end
 
 	local HEAD_H = MOBILE and 48 or 44
 	local BTN = MOBILE and 34 or 28
@@ -757,9 +1024,6 @@ function Aqua:CreateWindow(opts)
 		}),
 	})
 	local logoHolder = New("Frame", { Size = UDim2.fromOffset(22, 22), BackgroundTransparency = 1, LayoutOrder = 0, Parent = titleBox })
-	win._logo = opts.Logo
-	BuildLogo(logoHolder, 20, win._logo, win.Accent)
-
 	New("TextLabel", {
 		Size = UDim2.fromOffset(0, 18),
 		AutomaticSize = Enum.AutomaticSize.X,
@@ -767,12 +1031,12 @@ function Aqua:CreateWindow(opts)
 		Font = Enum.Font.GothamBold,
 		TextSize = 14,
 		TextColor3 = THEME.Text,
-		Text = opts.Title or "Aqua",
+		Text = NAME,
 		LayoutOrder = 1,
 		Parent = titleBox,
 	})
 	local subExtras = {}
-	if opts.Subtitle then
+	if cfg.Subtitle then
 		table.insert(subExtras, New("Frame", { Size = UDim2.fromOffset(1, 14), BackgroundColor3 = THEME.Line, BorderSizePixel = 0, LayoutOrder = 2, Parent = titleBox }))
 		table.insert(subExtras, New("TextLabel", {
 			Size = UDim2.fromOffset(0, 18),
@@ -781,7 +1045,7 @@ function Aqua:CreateWindow(opts)
 			Font = Enum.Font.GothamMedium,
 			TextSize = 13,
 			TextColor3 = THEME.Sub,
-			Text = opts.Subtitle,
+			Text = cfg.Subtitle,
 			LayoutOrder = 3,
 			Parent = titleBox,
 		}))
@@ -856,7 +1120,7 @@ function Aqua:CreateWindow(opts)
 	searchBox:GetPropertyChangedSignal("Text"):Connect(function()
 		local q = searchBox.Text:lower()
 		local seen = {}
-		for _, s in ipairs(win._search) do
+		for _, s in ipairs(W._search) do
 			if s.row.Parent then
 				local vis = q == "" or s.text:find(q, 1, true) ~= nil
 				s.row.Visible = vis
@@ -878,157 +1142,192 @@ function Aqua:CreateWindow(opts)
 	local side = New("Frame", { BackgroundTransparency = 1, Size = UDim2.new(0, 150, 1, 0), Parent = body })
 	New("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(1, 0), Size = UDim2.new(0, 1, 1, 0), BackgroundColor3 = THEME.Line, BorderSizePixel = 0, Parent = side })
 
-	local sideTop = New("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, -1, 0, 0), Parent = side })
-	if opts.Badge then
-		sideTop.Size = UDim2.new(1, -1, 0, 56)
-		New("TextLabel", {
-			BackgroundTransparency = 1, Position = UDim2.fromOffset(PAD + 2, 8), Size = UDim2.new(1, -(PAD + 6), 0, 20),
-			Font = Enum.Font.GothamBold, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = THEME.Text, Text = opts.Badge, Parent = sideTop,
-		})
-		New("TextLabel", {
-			BackgroundTransparency = 1, Position = UDim2.fromOffset(PAD + 2, 28), Size = UDim2.new(1, -(PAD + 6), 0, 16),
-			Font = Enum.Font.Gotham, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = THEME.Sub, Text = opts.BadgeSub or "", Parent = sideTop,
-		})
-		New("Frame", { Position = UDim2.new(0, 0, 1, -1), Size = UDim2.new(1, -10, 0, 1), BackgroundColor3 = THEME.Line, BorderSizePixel = 0, Parent = sideTop })
-	end
-
-	local listTop = sideTop.Size.Y.Offset + 10
 	local pageList = New("ScrollingFrame", {
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(10, listTop),
-		Size = UDim2.new(1, -21, 1, -(listTop + ROW_H + 22)),
+		Position = UDim2.fromOffset(10, 10),
+		Size = UDim2.new(1, -21, 1, -(ROW_H + 32)),
 		CanvasSize = UDim2.new(),
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		ScrollBarThickness = 0,
+		BorderSizePixel = 0,
 		Parent = side,
 	}, { New("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }) })
 
-	local bottomList = New("Frame", {
-		AnchorPoint = Vector2.new(0, 1),
-		BackgroundTransparency = 1,
-		Position = UDim2.new(0, 10, 1, -10),
-		Size = UDim2.new(1, -21, 0, ROW_H),
-		Parent = side,
-	}, { New("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Bottom }) })
 	New("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, -(ROW_H + 16)), Size = UDim2.new(1, -10, 0, 1), BackgroundColor3 = THEME.Line, BorderSizePixel = 0, Parent = side })
+
+	local gearBtn = New("TextButton", {
+		Name = "Settings",
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -8),
+		Size = UDim2.fromOffset(ROW_H + 6, ROW_H),
+		BackgroundColor3 = THEME.Select,
+		BackgroundTransparency = 1,
+		Text = "",
+		AutoButtonColor = false,
+		Parent = side,
+	})
+	Corner(gearBtn, UDim.new(0, 10))
+	local gear = DrawGear(gearBtn, MOBILE and 22 or 20, THEME.Sub)
+	gearBtn.MouseEnter:Connect(function()
+		if W._current ~= W._settings then Tween(gearBtn, { BackgroundTransparency = 0.5 }) end
+	end)
+	gearBtn.MouseLeave:Connect(function()
+		if W._current ~= W._settings then Tween(gearBtn, { BackgroundTransparency = 1 }) end
+	end)
 
 	local pagesHolder = New("Frame", {
 		BackgroundTransparency = 1,
 		Position = UDim2.fromOffset(150 + PAD, 0),
 		Size = UDim2.new(1, -(150 + PAD * 2), 1, 0),
+		ClipsDescendants = true,
 		Parent = body,
 	})
 
-	local badgeVisibleTargets = {}
-	for _, c in ipairs(sideTop:GetChildren()) do
-		table.insert(badgeVisibleTargets, c)
+	local function SetLogoImage()
+		BuildLogo(logoHolder, 20, W._logoImg, W.Accent)
+		if W._toggleLogo then BuildLogo(W._toggleLogo, 20, W._logoImg, W.Accent) end
+	end
+	W:BindAccent(function()
+		if not W._logoImg then SetLogoImage() end
+	end)
+
+	function W:SetLogo(src)
+		if src == nil or src == "" then
+			W._logoSrc, W._logoImg = nil, nil
+			SetLogoImage()
+			Persist("logo", "")
+			return true
+		end
+		local res = ResolveImage(src, "logo", true)
+		if not res then
+			W:Notify({ Title = "Logo", Content = "Не удалось загрузить картинку. Укажите id, прямую ссылку или путь к файлу.", Duration = 4 })
+			return false
+		end
+		W._logoSrc, W._logoImg = src, res
+		SetLogoImage()
+		Persist("logo", tostring(src))
+		return true
+	end
+
+	function W:SetBackground(src)
+		if src == nil or src == "" then
+			bgImage.Image = ""
+			bgImage.Visible = false
+			Persist("bg", "")
+			return true
+		end
+		local res = ResolveImage(src, "bg", true)
+		if not res then
+			W:Notify({ Title = "Background", Content = "Не удалось загрузить картинку. Укажите id, прямую ссылку или путь к файлу.", Duration = 4 })
+			return false
+		end
+		bgImage.Image = res
+		bgImage.Visible = true
+		Persist("bg", tostring(src))
+		return true
+	end
+
+	function W:SetBackgroundOpacity(v)
+		bgOpacity = math.clamp(v, 0, 1)
+		bgImage.ImageTransparency = 1 - bgOpacity
+	end
+
+	function W:SetOpacity(v)
+		main.BackgroundTransparency = math.clamp(v, 0, 0.6)
 	end
 
 	local function Relayout()
-		local W = (win.Minimized and win._full and win._full.X.Offset) or main.Size.X.Offset
-		local rail = W < 470
-		local sideW = rail and 60 or (W < 560 and 132 or 150)
-		local contentW = W - sideW - PAD * 2
+		local Wd = (W.Minimized and W._full and W._full.X.Offset) or main.Size.X.Offset
+		local rail = Wd < 470
+		local sideW = rail and 60 or (Wd < 560 and 132 or 150)
+		local contentW = Wd - sideW - PAD * 2
 		local single = contentW < 380
-		win._single = single
+		W._single = single
 		side.Size = UDim2.new(0, sideW, 1, 0)
 		pagesHolder.Position = UDim2.fromOffset(sideW + PAD, 0)
 		pagesHolder.Size = UDim2.new(1, -(sideW + PAD * 2), 1, 0)
-		for _, c in ipairs(badgeVisibleTargets) do c.Visible = not rail end
-		for _, p in ipairs(win.Pages) do
-			p.Label.Visible = not rail
-			p.Letter.Visible = rail and not p.HasIcon
-			if p.IconImg then
-				p.IconImg.Position = rail and UDim2.new(0.5, -8, 0.5, 0) or UDim2.new(0, 12, 0.5, 0)
+		for _, p in ipairs(W.AllPages) do
+			if p.Button then
+				p.Label.Visible = not rail
+				p.Letter.Visible = rail and not p.HasIcon
+				if p.IconImg then
+					p.IconImg.Position = rail and UDim2.new(0.5, -8, 0.5, 0) or UDim2.new(0, 12, 0.5, 0)
+				end
 			end
-			for _, t in ipairs(p.Tabs) do t:_apply(single) end
+			for _, s in ipairs(p.Subs) do s:_apply(single) end
 		end
-		local showSub = not win.Minimized and W >= 540
+		local showSub = not W.Minimized and Wd >= 540
 		for _, e in ipairs(subExtras) do e.Visible = showSub end
 	end
 
-	function win:Fit()
-		if win.Minimized then return end
+	function W:Fit()
+		if W.Minimized then return end
 		local cam = workspace.CurrentCamera
 		local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
 		local bw, bh = size.X.Offset, size.Y.Offset
 		local s
-		if win._manual then
-			s = win.Scale
+		if W._manual then
+			s = W.Scale
 		else
 			s = math.clamp(math.min(vp.X * 0.94 / bw, vp.Y * 0.88 / bh, 1), 0.75, 1)
 		end
-		win.Scale = s
+		W.Scale = s
 		uiScale.Scale = s
 		main.Size = UDim2.fromOffset(math.floor(math.min(bw, vp.X * 0.94 / s)), math.floor(math.min(bh, vp.Y * 0.88 / s)))
 		Relayout()
 	end
 
-	function win:SetScale(v)
-		win._manual = true
-		win.Scale = math.clamp(v, 0.5, 1.5)
-		win:Fit()
+	function W:SetScale(v)
+		W._manual = true
+		W.Scale = math.clamp(v, 0.5, 1.5)
+		W:Fit()
 	end
 
-	function win:SetOpen(state)
-		win.Open = state
+	function W:SetOpen(state)
+		W.Open = state
 		if state then
-			uiScale.Scale = win.Scale * 0.92
+			uiScale.Scale = W.Scale * 0.92
 			main.Visible = true
-			Tween(uiScale, { Scale = win.Scale }, 0.25, Enum.EasingStyle.Back)
+			Tween(uiScale, { Scale = W.Scale }, 0.25, Enum.EasingStyle.Back)
 		else
-			Tween(uiScale, { Scale = win.Scale * 0.92 }, 0.15)
+			Tween(uiScale, { Scale = W.Scale * 0.92 }, 0.15)
 			task.delay(0.15, function()
-				if not win.Open then main.Visible = false end
+				if not W.Open then main.Visible = false end
 			end)
 		end
 	end
 
-	function win:SetMinimized(state)
-		win.Minimized = state
+	function W:SetMinimized(state)
+		W.Minimized = state
 		searchB.Visible = not state
 		headLine.Visible = not state
 		if state then
 			searchBox.Visible = false
 			searchBox.Text = ""
-			win._full = main.Size
+			W._full = main.Size
 			body.Visible = false
 			for _, e in ipairs(subExtras) do e.Visible = false end
 			top.Size = UDim2.new(1, 0, 0, 38)
 			Tween(main, { Size = UDim2.fromOffset(170, 38) }, 0.2)
 		else
 			top.Size = UDim2.new(1, 0, 0, HEAD_H)
-			Tween(main, { Size = win._full or size }, 0.2)
+			Tween(main, { Size = W._full or size }, 0.2)
 			task.delay(0.22, function()
-				body.Visible = not win.Minimized
+				body.Visible = not W.Minimized
 				Relayout()
 			end)
 		end
 	end
 
-	function win:SetWatermark(v)
-		if win.WatermarkFrame then win.WatermarkFrame.Visible = v end
+	function W:SetWatermark(v)
+		if W.WatermarkFrame then W.WatermarkFrame.Visible = v end
 	end
 
-	function win:SetOpacity(v)
-		main.BackgroundTransparency = math.clamp(v, 0, 0.6)
-	end
+	closeB.MouseButton1Click:Connect(function() W:SetOpen(false) end)
+	minB.MouseButton1Click:Connect(function() W:SetMinimized(not W.Minimized) end)
 
-	function win:SetAccent(v)
-		local c = v
-		if type(v) == "string" then c = ACCENTS[v] end
-		if typeof(c) ~= "Color3" then return end
-		win.Accent = c
-		for _, f in ipairs(win._accentFns) do pcall(f, c) end
-	end
-
-	closeB.MouseButton1Click:Connect(function() win:SetOpen(false) end)
-	minB.MouseButton1Click:Connect(function() win:SetMinimized(not win.Minimized) end)
-
-	local toggle, toggleLogo
-	if opts.ToggleButton ~= false then
+	local toggle
+	if cfg.ToggleButton ~= false then
 		local tsize = MOBILE and 44 or 36
 		toggle = New("TextButton", {
 			Name = "Toggle",
@@ -1042,44 +1341,33 @@ function Aqua:CreateWindow(opts)
 		})
 		Corner(toggle, UDim.new(1, 0))
 		Stroke(toggle, THEME.Line, 0, 1.5)
-		toggleLogo = New("Frame", {
+		W._toggleLogo = New("Frame", {
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(0.5, 0.5),
 			Size = UDim2.fromOffset(24, 24),
 			BackgroundTransparency = 1,
 			Parent = toggle,
 		})
-		BuildLogo(toggleLogo, 20, win._logo, win.Accent)
 		local dragState = MakeDraggable(toggle, toggle)
 		toggle.MouseButton1Click:Connect(function()
-			if not dragState.moved then win:SetOpen(not win.Open) end
+			if not dragState.moved then W:SetOpen(not W.Open) end
 		end)
 		if S.openButton == false then toggle.Visible = false end
 	end
+	W.ToggleButton = toggle
 
-	function win:SetToggleButton(v)
+	function W:SetToggleButton(v)
 		if toggle then toggle.Visible = v end
 	end
 
-	function win:SetLogo(v)
-		win._logo = v
-		BuildLogo(logoHolder, 20, v, win.Accent)
-		if toggleLogo then BuildLogo(toggleLogo, 20, v, win.Accent) end
-	end
+	SetLogoImage()
 
-	table.insert(win._accentFns, function(c)
-		if not ResolveImage(win._logo) then
-			BuildLogo(logoHolder, 20, nil, c)
-			if toggleLogo then BuildLogo(toggleLogo, 20, nil, c) end
-		end
-	end)
-
-	local toggleKey = opts.ToggleKey
+	local toggleKey = cfg.ToggleKey
 	if toggleKey == nil and not MOBILE then toggleKey = Enum.KeyCode.RightShift end
 	if toggleKey then
-		UserInputService.InputBegan:Connect(function(i, gp)
-			if not gp and i.KeyCode == toggleKey then win:SetOpen(not win.Open) end
-		end)
+		table.insert(W.Conns, UserInputService.InputBegan:Connect(function(i, gp)
+			if not gp and i.KeyCode == toggleKey then W:SetOpen(not W.Open) end
+		end))
 	end
 
 	local toastW = MOBILE and 230 or 250
@@ -1099,7 +1387,8 @@ function Aqua:CreateWindow(opts)
 		}),
 	})
 
-	function win:Notify(title, text, duration)
+	function W:Notify(c)
+		c = c or {}
 		local t = New("Frame", {
 			Size = UDim2.fromOffset(toastW, 0),
 			AutomaticSize = Enum.AutomaticSize.Y,
@@ -1108,7 +1397,7 @@ function Aqua:CreateWindow(opts)
 			Parent = toastHolder,
 		})
 		Corner(t, UDim.new(0, 12))
-		local st = Stroke(t, win.Accent, 1)
+		local st = Stroke(t, W.Accent, 1)
 		New("UIPadding", {
 			PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10),
 			PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12), Parent = t,
@@ -1117,18 +1406,18 @@ function Aqua:CreateWindow(opts)
 		local a = New("TextLabel", {
 			Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
 			Font = Enum.Font.GothamBold, TextSize = 13, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = THEME.Text, Text = title or "", TextTransparency = 1, LayoutOrder = 1, Parent = t,
+			TextColor3 = THEME.Text, Text = tostring(c.Title or ""), TextTransparency = 1, LayoutOrder = 1, Parent = t,
 		})
 		local b = New("TextLabel", {
 			Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
 			Font = Enum.Font.Gotham, TextSize = 12, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = THEME.Sub, Text = text or "", TextTransparency = 1, LayoutOrder = 2, Parent = t,
+			TextColor3 = THEME.Sub, Text = tostring(c.Content or ""), TextTransparency = 1, LayoutOrder = 2, Parent = t,
 		})
 		Tween(t, { BackgroundTransparency = 0.05 }, 0.25)
 		Tween(st, { Transparency = 0.5 }, 0.25)
 		Tween(a, { TextTransparency = 0 }, 0.25)
 		Tween(b, { TextTransparency = 0 }, 0.25)
-		task.delay(duration or 4, function()
+		task.delay(c.Duration or 4, function()
 			Tween(t, { BackgroundTransparency = 1 }, 0.3)
 			Tween(st, { Transparency = 1 }, 0.3)
 			Tween(a, { TextTransparency = 1 }, 0.3)
@@ -1137,50 +1426,90 @@ function Aqua:CreateWindow(opts)
 		end)
 	end
 
-	function win:AddPage(name, iconId, pinned)
-		local page = { Tabs = {}, HasIcon = ResolveImage(iconId) ~= nil }
+	local function ShowPage(page)
+		for _, p in ipairs(W.AllPages) do
+			p.Frame.Visible = false
+			if p.Button then
+				p.Indicator.Visible = false
+				Tween(p.Button, { BackgroundTransparency = 1 })
+				Tween(p.Label, { TextColor3 = THEME.Sub })
+			end
+		end
+		W._current = page
+		page.Frame.Visible = true
+		if page.Button then
+			page.Indicator.Visible = true
+			Tween(page.Button, { BackgroundTransparency = 0 })
+			Tween(page.Label, { TextColor3 = THEME.Text })
+			W._last = page
+		end
+		local isSettings = page == W._settings
+		Tween(gearBtn, { BackgroundTransparency = isSettings and 0 or 1 })
+		gear:SetColor(isSettings and W.Accent or THEME.Sub)
+	end
 
-		local btn = New("TextButton", {
-			Size = UDim2.new(1, 0, 0, ROW_H),
-			BackgroundColor3 = THEME.Row,
-			BackgroundTransparency = 1,
-			Text = "",
-			AutoButtonColor = false,
-			LayoutOrder = #win.Pages + 1,
-			Parent = pinned and bottomList or pageList,
-		})
-		Corner(btn, UDim.new(0, 10))
-		local indicator = New("Frame", {
-			AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0),
-			Size = UDim2.fromOffset(3, 16), BackgroundColor3 = win.Accent, BorderSizePixel = 0,
-			Visible = false, Parent = btn,
-		})
-		Corner(indicator, UDim.new(1, 0))
-		table.insert(win._accentFns, function(c) indicator.BackgroundColor3 = c end)
-		page.IconImg = Icon(btn, iconId, 16, THEME.Text, UDim2.new(0, 12, 0.5, 0))
-		local label = New("TextLabel", {
-			BackgroundTransparency = 1,
-			Position = UDim2.fromOffset(page.HasIcon and 36 or 14, 0),
-			Size = UDim2.new(1, -(page.HasIcon and 40 or 18), 1, 0),
-			Font = Enum.Font.GothamMedium, TextSize = TS,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = THEME.Sub, Text = name, Parent = btn,
-		})
-		local letter = New("TextLabel", {
-			BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1),
-			Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = THEME.Text,
-			Text = name:sub(1, 1):upper(), Visible = false, Parent = btn,
-		})
+	Tap(gearBtn, function()
+		if not W._settings then return end
+		if W._current == W._settings then
+			if W._last then ShowPage(W._last) end
+		else
+			ShowPage(W._settings)
+		end
+	end)
+	W:BindAccent(function(c)
+		if W._current and W._current == W._settings then gear:SetColor(c) end
+	end)
 
-		local frame = New("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false, Parent = pagesHolder })
-		local tabBar = New("ScrollingFrame", {
+	local function MakePage(name, iconId, hidden)
+		local page = { Name = name, Subs = {}, SubByName = {}, HasIcon = ResolveImage(iconId, "icon", false) ~= nil }
+
+		if not hidden then
+			local btn = New("TextButton", {
+				Size = UDim2.new(1, 0, 0, ROW_H),
+				BackgroundColor3 = THEME.Select,
+				BackgroundTransparency = 1,
+				Text = "",
+				AutoButtonColor = false,
+				LayoutOrder = #W.Pages + 1,
+				Parent = pageList,
+			})
+			Corner(btn, UDim.new(0, 10))
+			local indicator = New("Frame", {
+				AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0),
+				Size = UDim2.fromOffset(3, 16), BackgroundColor3 = W.Accent, BorderSizePixel = 0,
+				Visible = false, Parent = btn,
+			}, { Corner(UDim.new(1, 0)) })
+			W:BindAccent(function(c) indicator.BackgroundColor3 = c end)
+			page.IconImg = Icon(btn, iconId, 16, THEME.Text, UDim2.new(0, 12, 0.5, 0))
+			page.Label = New("TextLabel", {
+				BackgroundTransparency = 1,
+				Position = UDim2.fromOffset(page.HasIcon and 36 or 14, 0),
+				Size = UDim2.new(1, -(page.HasIcon and 40 or 18), 1, 0),
+				Font = Enum.Font.GothamMedium, TextSize = TS,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				TextColor3 = THEME.Sub, Text = name, Parent = btn,
+			})
+			page.Letter = New("TextLabel", {
+				BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1),
+				Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = THEME.Text,
+				Text = tostring(name):sub(1, 1):upper(), Visible = false, Parent = btn,
+			})
+			page.Button, page.Indicator = btn, indicator
+			Tap(btn, function() ShowPage(page) end)
+		end
+
+		page.Frame = New("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false, Parent = pagesHolder })
+		page.Bar = New("ScrollingFrame", {
 			BackgroundTransparency = 1,
 			Size = UDim2.new(1, 0, 0, 42),
 			CanvasSize = UDim2.new(),
 			AutomaticCanvasSize = Enum.AutomaticSize.X,
 			ScrollBarThickness = 0,
 			ScrollingDirection = Enum.ScrollingDirection.X,
-			Parent = frame,
+			BorderSizePixel = 0,
+			Visible = false,
+			Parent = page.Frame,
 		}, {
 			New("UIListLayout", {
 				FillDirection = Enum.FillDirection.Horizontal,
@@ -1188,35 +1517,34 @@ function Aqua:CreateWindow(opts)
 				VerticalAlignment = Enum.VerticalAlignment.Center,
 				SortOrder = Enum.SortOrder.LayoutOrder,
 			}),
+			New("UIPadding", { PaddingLeft = UDim.new(0, 4) }),
 		})
-		local tabArea = New("Frame", {
+		page.Area = New("Frame", {
 			BackgroundTransparency = 1,
-			Position = UDim2.fromOffset(0, 50),
-			Size = UDim2.new(1, 0, 1, -50),
-			Parent = frame,
+			Position = UDim2.fromOffset(0, 0),
+			Size = UDim2.fromScale(1, 1),
+			Parent = page.Frame,
 		})
 
-		local function SelectPage()
-			for _, p in ipairs(win.Pages) do
-				p.Frame.Visible = false
-				p.Indicator.Visible = false
-				Tween(p.Button, { BackgroundTransparency = 1 })
-				Tween(p.Label, { TextColor3 = THEME.Sub })
+		local function UpdateBar()
+			local named = #page.Subs > 1
+			for _, s in ipairs(page.Subs) do
+				if s.Named then named = true end
 			end
-			win._selected = page
-			frame.Visible = true
-			indicator.Visible = true
-			Tween(btn, { BackgroundTransparency = 0 })
-			Tween(label, { TextColor3 = THEME.Text })
+			page.Bar.Visible = named
+			page.Area.Position = UDim2.fromOffset(0, named and 46 or 0)
+			page.Area.Size = UDim2.new(1, 0, 1, named and -46 or 0)
+			if named then
+				for _, s in ipairs(page.Subs) do
+					if not s.Named then s.Button.Text = page.Name end
+				end
+			end
 		end
-		btn.MouseButton1Click:Connect(SelectPage)
-		page.Frame, page.Button, page.Indicator, page.Label, page.Letter = frame, btn, indicator, label, letter
-		table.insert(win.Pages, page)
-		if not pinned and not win._selected then SelectPage() end
 
-		function page:AddTab(tabName, tabIcon)
-			local tab = { _l = 0, _r = 0, _index = 0, _entries = {} }
+		local function MakeSub(subName, subIcon)
+			local sub = { Named = subName ~= nil, _l = 0, _r = 0, _index = 0, _entries = {}, Sections = {} }
 
+			local hasIcon = ResolveImage(subIcon, "icon", false) ~= nil
 			local tbtn = New("TextButton", {
 				Size = UDim2.new(0, 0, 1, 0),
 				AutomaticSize = Enum.AutomaticSize.X,
@@ -1224,30 +1552,36 @@ function Aqua:CreateWindow(opts)
 				Font = Enum.Font.GothamMedium,
 				TextSize = TS,
 				TextColor3 = THEME.Sub,
-				Text = tabName,
-				LayoutOrder = #page.Tabs + 1,
-				Parent = tabBar,
+				Text = subName or page.Name,
+				LayoutOrder = #page.Subs + 1,
+				Parent = page.Bar,
 			})
-			New("UIPadding", { PaddingLeft = UDim.new(0, ResolveImage(tabIcon) and 22 or 0), Parent = tbtn })
-			Icon(tbtn, tabIcon, 15, THEME.Sub, UDim2.new(0, -22, 0.5, 0))
-			local hasTabIcon = ResolveImage(tabIcon) ~= nil
+			New("UIPadding", { PaddingLeft = UDim.new(0, hasIcon and 22 or 0), Parent = tbtn })
+			Icon(tbtn, subIcon, 15, THEME.Sub, UDim2.new(0, -22, 0.5, 0))
 			local underline = New("Frame", {
-				AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, hasTabIcon and -22 or 0, 1, -2),
-				Size = UDim2.new(1, hasTabIcon and 22 or 0, 0, 2), BackgroundColor3 = win.Accent, BorderSizePixel = 0,
+				AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, hasIcon and -22 or 0, 1, -2),
+				Size = UDim2.new(1, hasIcon and 22 or 0, 0, 2), BackgroundColor3 = W.Accent, BorderSizePixel = 0,
 				Visible = false, Parent = tbtn,
-			})
-			Corner(underline, UDim.new(1, 0))
-			table.insert(win._accentFns, function(c) underline.BackgroundColor3 = c end)
+			}, { Corner(UDim.new(1, 0)) })
+			W:BindAccent(function(c) underline.BackgroundColor3 = c end)
 
 			local scroll = New("ScrollingFrame", {
 				BackgroundTransparency = 1,
 				Size = UDim2.fromScale(1, 1),
 				CanvasSize = UDim2.new(),
 				AutomaticCanvasSize = Enum.AutomaticSize.Y,
-				ScrollBarThickness = MOBILE and 0 or 2,
+				ScrollBarThickness = MOBILE and 0 or 3,
 				ScrollBarImageColor3 = THEME.Line,
+				BorderSizePixel = 0,
 				Visible = false,
-				Parent = tabArea,
+				Parent = page.Area,
+			}, {
+				New("UIPadding", {
+					PaddingTop = UDim.new(0, 4),
+					PaddingLeft = UDim.new(0, 4),
+					PaddingRight = UDim.new(0, MOBILE and 4 or 10),
+					PaddingBottom = UDim.new(0, 16),
+				}),
 			})
 			local function Column(x, offset)
 				return New("Frame", {
@@ -1258,24 +1592,25 @@ function Aqua:CreateWindow(opts)
 					Parent = scroll,
 				}, { New("UIListLayout", { Padding = UDim.new(0, 12), SortOrder = Enum.SortOrder.LayoutOrder }) })
 			end
-			tab.Left, tab.Right = Column(0, 0), Column(0.5, 6)
+			sub.Left, sub.Right = Column(0, 0), Column(0.5, 6)
+			sub.Scroll, sub.Button, sub.Underline = scroll, tbtn, underline
 
-			function tab:_apply(single)
-				tab.Left.Size = single and UDim2.new(1, 0, 0, 0) or UDim2.new(0.5, -6, 0, 0)
-				tab.Right.Visible = not single
-				for _, e in ipairs(tab._entries) do
+			function sub:_apply(single)
+				sub.Left.Size = single and UDim2.new(1, 0, 0, 0) or UDim2.new(0.5, -6, 0, 0)
+				sub.Right.Visible = not single
+				for _, e in ipairs(sub._entries) do
 					if single then
-						e.frame.Parent = tab.Left
+						e.frame.Parent = sub.Left
 						e.frame.LayoutOrder = e.index
 					else
-						e.frame.Parent = e.side == "Right" and tab.Right or tab.Left
+						e.frame.Parent = e.side == "Right" and sub.Right or sub.Left
 						e.frame.LayoutOrder = e.colOrder
 					end
 				end
 			end
 
-			local function SelectTab()
-				for _, t in ipairs(page.Tabs) do
+			local function SelectSub()
+				for _, t in ipairs(page.Subs) do
 					t.Scroll.Visible = false
 					t.Underline.Visible = false
 					Tween(t.Button, { TextColor3 = THEME.Sub })
@@ -1284,21 +1619,22 @@ function Aqua:CreateWindow(opts)
 				underline.Visible = true
 				Tween(tbtn, { TextColor3 = THEME.Text })
 			end
-			tbtn.MouseButton1Click:Connect(SelectTab)
-			tab.Scroll, tab.Button, tab.Underline = scroll, tbtn, underline
-			table.insert(page.Tabs, tab)
-			if #page.Tabs == 1 then SelectTab() end
+			Tap(tbtn, SelectSub)
+			table.insert(page.Subs, sub)
+			if #page.Subs == 1 then SelectSub() end
+			UpdateBar()
 
-			function tab:AddCard(title, cardIcon, side)
-				local useRight = (side == "Right") or (side == nil and tab._l > tab._r)
-				if useRight then tab._r += 1 else tab._l += 1 end
-				tab._index += 1
+			function sub:AddSection(scfg)
+				scfg = scfg or {}
+				local useRight = (scfg.Position == "Right") or (scfg.Position == nil and sub._l > sub._r)
+				if useRight then sub._r += 1 else sub._l += 1 end
+				sub._index += 1
 
 				local card = New("Frame", {
 					Size = UDim2.new(1, 0, 0, 0),
 					AutomaticSize = Enum.AutomaticSize.Y,
 					BackgroundColor3 = THEME.Panel,
-					Parent = useRight and tab.Right or tab.Left,
+					Parent = useRight and sub.Right or sub.Left,
 				})
 				Corner(card, UDim.new(0, 14))
 				Stroke(card, THEME.Line, 0)
@@ -1311,111 +1647,226 @@ function Aqua:CreateWindow(opts)
 				local entry = {
 					frame = card,
 					side = useRight and "Right" or "Left",
-					index = tab._index,
-					colOrder = useRight and tab._r or tab._l,
+					index = sub._index,
+					colOrder = useRight and sub._r or sub._l,
 				}
 				card.LayoutOrder = entry.colOrder
-				table.insert(tab._entries, entry)
-				if win._single then tab:_apply(true) end
+				table.insert(sub._entries, entry)
+				if W._single then sub:_apply(true) end
 
 				local head = New("Frame", { Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, LayoutOrder = 0, Parent = card })
-				Icon(head, cardIcon, 17, THEME.Text, UDim2.new(0, 0, 0.5, 0))
+				local hasI = ResolveImage(scfg.Icon, "icon", false) ~= nil
+				Icon(head, scfg.Icon, 17, THEME.Text, UDim2.new(0, 0, 0.5, 0))
 				New("TextLabel", {
 					BackgroundTransparency = 1,
-					Position = UDim2.fromOffset(ResolveImage(cardIcon) and 26 or 0, 0),
-					Size = UDim2.new(1, -(ResolveImage(cardIcon) and 26 or 0), 1, 0),
+					Position = UDim2.fromOffset(hasI and 26 or 0, 0),
+					Size = UDim2.new(1, -(hasI and 26 or 0), 1, 0),
 					Font = Enum.Font.GothamBold, TextSize = MOBILE and 16 or 15,
 					TextXAlignment = Enum.TextXAlignment.Left,
-					TextColor3 = THEME.Text, Text = title, Parent = head,
+					TextTruncate = Enum.TextTruncate.AtEnd,
+					TextColor3 = THEME.Text, Text = tostring(scfg.Name or ""), Parent = head,
 				})
-				return Elements(card, win, card)
+				local E = Elements(card, W, card)
+				if scfg.Name then sub.Sections[scfg.Name] = E end
+				return E
 			end
 
-			return tab
+			function sub:Section(sname, position, icon)
+				return sub.Sections[sname] or sub:AddSection({ Name = sname, Position = position, Icon = icon })
+			end
+
+			return sub
 		end
 
-		Relayout()
+		function page:SubTab(subName, subIcon)
+			if page.SubByName[subName] then return page.SubByName[subName] end
+			local s = MakeSub(subName, subIcon)
+			page.SubByName[subName] = s
+			return s
+		end
+
+		function page:Section(sname, position, icon)
+			if not page.Default then page.Default = MakeSub(nil, nil) end
+			return page.Default:Section(sname, position, icon)
+		end
+
+		function page:AddSection(scfg)
+			if not page.Default then page.Default = MakeSub(nil, nil) end
+			return page.Default:AddSection(scfg)
+		end
+
+		table.insert(W.AllPages, page)
+		if not hidden then
+			table.insert(W.Pages, page)
+			if not W._current then ShowPage(page) end
+		end
 		return page
 	end
 
-	if opts.Settings ~= false then
-		if S.manual and S.scale then
-			win._manual = true
-			win.Scale = S.scale
-		end
-		if S.opacity then win:SetOpacity(S.opacity) end
-		if S.accent and ACCENTS[S.accent] then win:SetAccent(S.accent) end
-
-		local sp = win:AddPage("Settings", nil, true)
-		local st = sp:AddTab("Interface")
-
-		local window = st:AddCard("Window")
-		local autoFit, scaleSlider
-		autoFit = window:AddToggle("Auto Fit", not win._manual, function(v)
-			if v then
-				win._manual = false
-				Persist("manual", false)
-				win:Fit()
-				if scaleSlider then scaleSlider.Set(win.Scale * 100) end
-			else
-				win._manual = true
-				Persist("manual", true)
-				Persist("scale", win.Scale)
-			end
-		end)
-		scaleSlider = window:AddSlider("UI Scale", 50, 150, math.floor(win.Scale * 100 + 0.5), function(v)
-			if autoFit:Get() then autoFit:Set(false, true) end
-			win:SetScale(v / 100)
-			Persist("manual", true)
-			Persist("scale", v / 100)
-		end, "%")
-		window:AddSlider("Window Opacity", 0, 40, math.floor((S.opacity or 0) * 100 + 0.5), function(v)
-			win:SetOpacity(v / 100)
-			Persist("opacity", v / 100)
-		end, "%")
-		window:AddSlider("Background Image", 0, 100, math.floor(bgOpacity * 100 + 0.5), function(v)
-			win:SetBackgroundOpacity(v / 100)
-			Persist("bgOpacity", v / 100)
-		end, "%")
-
-		local display = st:AddCard("Display")
-		display:AddDropdown("Accent", ACCENT_NAMES, S.accent or "White", function(v)
-			win:SetAccent(v)
-			Persist("accent", v)
-		end)
-		display:AddToggle("Watermark", S.watermark ~= false and opts.Watermark ~= false, function(v)
-			win:SetWatermark(v)
-			Persist("watermark", v)
-		end)
-		display:AddToggle("Open Button", S.openButton ~= false and opts.ToggleButton ~= false, function(v)
-			win:SetToggleButton(v)
-			Persist("openButton", v)
-		end)
-
-		local data = st:AddCard("Data")
-		data:AddButton("Reset Settings", function()
-			win._cfg.settings = {}
-			win._cfg.flags = {}
-			S = win._cfg.settings
-			win:_save()
-			win:Notify("Aqua", "Настройки сброшены. Перезапустите скрипт.", 4)
-		end)
+	function W:Tab(name, icon)
+		if W.PageByName[name] then return W.PageByName[name] end
+		local p = MakePage(name, icon, false)
+		W.PageByName[name] = p
+		Relayout()
+		return p
 	end
 
-	win:Fit()
+	function W:AddTab(tcfg)
+		tcfg = tcfg or {}
+		return W:Tab(tcfg.Name, tcfg.Icon)
+	end
+
+	W._settings = MakePage("Settings", nil, true)
+
+	if S.manual and S.scale then
+		W._manual = true
+		W.Scale = S.scale
+	end
+	if S.opacity then W:SetOpacity(S.opacity) end
+
+	if cfg.SettingsPage ~= false then
+		local interface = W._settings:SubTab("Interface")
+		local window = interface:Section("Window", "Left")
+		local autoFit, scaleSlider
+		autoFit = window:AddToggle({
+			Name = "Auto Fit",
+			Default = not W._manual,
+			Callback = function(v)
+				if v then
+					W._manual = false
+					Persist("manual", false)
+					W:Fit()
+					if scaleSlider then scaleSlider:Set(W.Scale * 100, true) end
+				else
+					W._manual = true
+					Persist("manual", true)
+					Persist("scale", W.Scale)
+				end
+			end,
+		})
+		scaleSlider = window:AddSlider({
+			Name = "UI Scale", Min = 50, Max = 150, Default = math.floor(W.Scale * 100 + 0.5), Suffix = "%",
+			Callback = function(v)
+				if autoFit:Get() then autoFit:Set(false, true) end
+				W:SetScale(v / 100)
+				Persist("manual", true)
+				Persist("scale", v / 100)
+			end,
+		})
+		window:AddSlider({
+			Name = "Window Opacity", Min = 0, Max = 40, Default = math.floor((S.opacity or 0) * 100 + 0.5), Suffix = "%",
+			Callback = function(v)
+				W:SetOpacity(v / 100)
+				Persist("opacity", v / 100)
+			end,
+		})
+
+		local display = interface:Section("Display", "Right")
+		display:AddDropdown({
+			Name = "Accent", Options = ACCENT_NAMES,
+			Default = (S.accent and ACCENTS[S.accent]) and S.accent or "Blue",
+			Callback = function(v)
+				W:SetAccent(v)
+				Persist("accent", v)
+			end,
+		})
+		display:AddToggle({
+			Name = "Watermark", Default = S.watermark ~= false and cfg.Watermark ~= false,
+			Callback = function(v)
+				W:SetWatermark(v)
+				Persist("watermark", v)
+			end,
+		})
+		display:AddToggle({
+			Name = "Open Button", Default = S.openButton ~= false and cfg.ToggleButton ~= false,
+			Callback = function(v)
+				W:SetToggleButton(v)
+				Persist("openButton", v)
+			end,
+		})
+
+		local branding = W._settings:SubTab("Branding")
+		local logo = branding:Section("Logo", "Left")
+		local logoBox = logo:AddTextBox({
+			Name = "Image", Placeholder = "id / url / file", Default = S.logo or "",
+			Callback = function(v)
+				task.spawn(function() W:SetLogo(v) end)
+			end,
+		})
+		logo:AddButton({
+			Name = "Clear logo", ButtonText = "Clear",
+			Callback = function()
+				logoBox:Set("", true)
+				W:SetLogo(nil)
+			end,
+		})
+		local bg = branding:Section("Background", "Right")
+		local bgBox = bg:AddTextBox({
+			Name = "Image", Placeholder = "id / url / file", Default = S.bg or "",
+			Callback = function(v)
+				task.spawn(function() W:SetBackground(v) end)
+			end,
+		})
+		bg:AddSlider({
+			Name = "Image opacity", Min = 0, Max = 100, Default = math.floor(bgOpacity * 100 + 0.5), Suffix = "%",
+			Callback = function(v)
+				W:SetBackgroundOpacity(v / 100)
+				Persist("bgOpacity", v / 100)
+			end,
+		})
+		bg:AddButton({
+			Name = "Clear background", ButtonText = "Clear",
+			Callback = function()
+				bgBox:Set("", true)
+				W:SetBackground(nil)
+			end,
+		})
+
+		local data = W._settings:SubTab("Data")
+		local reset = data:Section("Settings", "Left")
+		reset:AddButton({
+			Name = "Reset settings", ButtonText = "Reset",
+			Callback = function()
+				W._cfg.settings = {}
+				W._cfg.flags = {}
+				S = W._cfg.settings
+				W:_save()
+				W:Notify({ Title = "Aqua", Content = "Настройки сброшены. Перезапустите скрипт.", Duration = 4 })
+			end,
+		})
+		reset:AddButton({
+			Name = "Unload interface", ButtonText = "Unload",
+			Callback = function() W:Destroy() end,
+		})
+	end
+
+	local logoSrc = (S.logo and S.logo ~= "") and S.logo or cfg.Logo
+	if logoSrc then task.spawn(function() W:SetLogo(logoSrc) end) end
+	local bgSrc = (S.bg and S.bg ~= "") and S.bg or cfg.Background
+	if bgSrc then task.spawn(function() W:SetBackground(bgSrc) end) end
+
+	W:Fit()
 	local cam = workspace.CurrentCamera
 	if cam then
-		cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
-			win:Fit()
-		end)
+		table.insert(W.Conns, cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+			W:Fit()
+		end))
 	end
 
-	function win:Destroy()
+	function W:Ready() end
+
+	function W:Destroy()
 		conn:Disconnect()
+		for _, c in ipairs(W.Conns) do pcall(function() c:Disconnect() end) end
 		gui:Destroy()
+		if Library.Active == W then Library.Active = nil end
+		if env.AquaUIWindow == W then env.AquaUIWindow = nil end
 	end
 
-	return win
+	env.AquaUIWindow = W
+	Library.Active = W
+
+	return W
 end
 
-return setmetatable({}, { __index = Aqua })
+return Library
