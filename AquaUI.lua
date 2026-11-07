@@ -10,6 +10,7 @@ local TweenService = Service("TweenService")
 local HttpService = Service("HttpService")
 local Stats = Service("Stats")
 local CoreGui = Service("CoreGui")
+local TextService = Service("TextService")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -20,9 +21,9 @@ local MOBILE = (function()
 	return UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 end)()
 
-local ROW_H = MOBILE and 44 or 38
+local ROW_H = MOBILE and 42 or 36
 local PAD = 14
-local TS = MOBILE and 14 or 13
+local TS = 12
 local HAS_FS = (writefile and readfile and isfile and isfolder and makefolder) and true or false
 
 local THEME = {
@@ -367,16 +368,35 @@ function Library:Notify(cfg)
 	if W then W:Notify(cfg) end
 end
 
+local function AutoFit(label, max, min)
+	local function upd()
+		local sc = (Library.Active and Library.Active.Scale) or 1
+		local w = label.AbsoluteSize.X / sc
+		if w <= 4 or label.Text == "" then return end
+		local sz = max
+		while sz > min do
+			local b = TextService:GetTextSize(label.Text, sz, label.Font, Vector2.new(10000, 100))
+			if b.X <= w - 2 then break end
+			sz -= 1
+		end
+		label.TextSize = sz
+	end
+	label:GetPropertyChangedSignal("AbsoluteSize"):Connect(upd)
+	label:GetPropertyChangedSignal("Text"):Connect(upd)
+	task.defer(upd)
+end
+
 local ticks = {}
 
-local function CreateWatermark(gui, W, yOffset)
+local function CreateWatermark(gui, W, yOffset, cfg)
 	local bar = New("Frame", {
 		Name = "Watermark",
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.new(0.5, 0, 0, yOffset),
-		Size = UDim2.fromOffset(230, 28),
+		Size = UDim2.fromOffset(200, 32),
 		BackgroundColor3 = Color3.fromRGB(10, 10, 12),
 		BorderSizePixel = 0,
+		ZIndex = 5,
 		Parent = gui,
 	})
 	Corner(bar, UDim.new(1, 0))
@@ -385,18 +405,33 @@ local function CreateWatermark(gui, W, yOffset)
 	local content = New("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(0, 20),
+		Size = UDim2.fromOffset(0, 24),
 		AutomaticSize = Enum.AutomaticSize.X,
 		BackgroundTransparency = 1,
 		Parent = bar,
 	}, {
 		New("UIListLayout", {
 			FillDirection = Enum.FillDirection.Horizontal,
-			Padding = UDim.new(0, 4),
+			Padding = UDim.new(0, 5),
 			VerticalAlignment = Enum.VerticalAlignment.Center,
 			SortOrder = Enum.SortOrder.LayoutOrder,
 		}),
 	})
+
+	local avatar = New("Frame", {
+		Size = UDim2.fromOffset(24, 24),
+		BackgroundColor3 = Color3.fromRGB(28, 28, 33),
+		LayoutOrder = 0,
+		Parent = content,
+	}, { Corner(UDim.new(1, 0)) })
+	New("ImageLabel", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Image = "rbxthumb://type=AvatarHeadShot&id=" .. LocalPlayer.UserId .. "&w=150&h=150",
+		Parent = avatar,
+	}, { Corner(UDim.new(1, 0)) })
+	local ring = Stroke(avatar, W.Accent, 0, 1.5)
+	W:BindAccent(function(c) ring.Color = c end)
 
 	local function Chip(order, color)
 		local c = New("Frame", {
@@ -421,16 +456,30 @@ local function CreateWatermark(gui, W, yOffset)
 		return l
 	end
 
-	local nameL = Chip(1, W.Accent)
-	local fpsL = Chip(2, THEME.Text)
-	local pingL = Chip(3, THEME.Text)
-	local timeL = Chip(4, THEME.Sub)
-	nameL.Text = LocalPlayer.DisplayName
-	nameL.Font = Enum.Font.GothamBold
-	W:BindAccent(function(c) nameL.TextColor3 = c end)
+	local nameL
+	if cfg.WatermarkName then
+		nameL = Chip(1, W.Accent)
+		nameL.Text = LocalPlayer.DisplayName
+		nameL.Font = Enum.Font.GothamBold
+		W:BindAccent(function(c) nameL.TextColor3 = c end)
+	end
+	local playersL = Chip(2, THEME.Text)
+	local fpsL = Chip(3, THEME.Text)
+	local pingL = Chip(4, THEME.Text)
+	local timeL
+	if cfg.WatermarkTime then timeL = Chip(5, THEME.Sub) end
+
+	local function UpdatePlayers()
+		playersL.Text = #Players:GetPlayers() .. "/" .. Players.MaxPlayers
+	end
+	UpdatePlayers()
+	table.insert(W.Conns, Players.PlayerAdded:Connect(UpdatePlayers))
+	table.insert(W.Conns, Players.PlayerRemoving:Connect(function()
+		task.defer(UpdatePlayers)
+	end))
 
 	content:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-		bar.Size = UDim2.fromOffset(content.AbsoluteSize.X + 8, 28)
+		bar.Size = UDim2.fromOffset(content.AbsoluteSize.X + 12, 32)
 	end)
 	MakeDraggable(bar, bar)
 
@@ -447,7 +496,7 @@ local function CreateWatermark(gui, W, yOffset)
 			end)
 			fpsL.Text = "FPS " .. fps
 			pingL.Text = ping .. " ms"
-			timeL.Text = os.date("%H:%M:%S")
+			if timeL then timeL.Text = os.date("%H:%M:%S") end
 		end
 	end)
 	return bar
@@ -471,7 +520,7 @@ local function Elements(container, W, cardRef)
 	end
 
 	local function Lbl(parent, text, reserve, y, h)
-		return New("TextLabel", {
+		local l = New("TextLabel", {
 			BackgroundTransparency = 1,
 			Position = UDim2.fromOffset(PAD, y or 0),
 			Size = UDim2.new(1, -(PAD + (reserve or 70)), 0, h or ROW_H),
@@ -483,6 +532,8 @@ local function Elements(container, W, cardRef)
 			Text = tostring(text or ""),
 			Parent = parent,
 		})
+		AutoFit(l, TS, 9)
+		return l
 	end
 
 	local function Hit(parent, h)
@@ -551,7 +602,7 @@ local function Elements(container, W, cardRef)
 	function E:AddButton(cfg)
 		cfg = type(cfg) == "string" and { Name = cfg } or cfg
 		local r = Row()
-		local fieldW = MOBILE and 96 or 90
+		local fieldW = MOBILE and 84 or 84
 		Lbl(r, cfg.Name, fieldW + 24)
 		local f = Field(r, fieldW)
 		f.BackgroundColor3 = Color3.new(1, 1, 1)
@@ -742,7 +793,7 @@ local function Elements(container, W, cardRef)
 
 	function E:AddTextBox(cfg)
 		local r = Row()
-		local fieldW = MOBILE and 130 or 150
+		local fieldW = MOBILE and 112 or 124
 		Lbl(r, cfg.Name, fieldW + 24)
 		local f = Field(r, fieldW)
 		local st = f:FindFirstChildOfClass("UIStroke")
@@ -789,7 +840,7 @@ local function Elements(container, W, cardRef)
 	function E:AddDropdown(cfg)
 		local r = Row()
 		r.ClipsDescendants = true
-		local fieldW = MOBILE and 130 or 150
+		local fieldW = MOBILE and 112 or 124
 		Lbl(r, cfg.Name, fieldW + 24)
 		local f = Field(r, fieldW)
 		local cur = New("TextLabel", {
@@ -956,9 +1007,12 @@ function Library:CreateWindow(cfg)
 		ResetOnSpawn = false,
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		DisplayOrder = 1000,
+		IgnoreGuiInset = true,
 		Parent = GetParent(),
 	})
 	W.Gui = gui
+
+	Library.Active = W
 
 	local conn = RunService.RenderStepped:Connect(function(dt)
 		for _, f in ipairs(ticks) do
@@ -966,18 +1020,18 @@ function Library:CreateWindow(cfg)
 		end
 	end)
 
-	local wmY = cfg.WatermarkY or (MOBILE and 66 or 12)
+	local wmY = cfg.WatermarkY or (MOBILE and 60 or 44)
 	if cfg.Watermark ~= false then
-		W.WatermarkFrame = CreateWatermark(gui, W, wmY)
+		W.WatermarkFrame = CreateWatermark(gui, W, wmY, cfg)
 		if S.watermark == false then W.WatermarkFrame.Visible = false end
 	end
 
-	local size = cfg.Size or UDim2.fromOffset(620, 380)
+	local size = cfg.Size or (MOBILE and UDim2.fromOffset(760, 380) or UDim2.fromOffset(700, 430))
 
 	local main = New("Frame", {
 		Name = "Main",
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.55),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.5, 0.1),
 		Size = size,
 		BackgroundColor3 = THEME.BG,
 		BorderSizePixel = 0,
@@ -1264,16 +1318,21 @@ function Library:CreateWindow(cfg)
 		if W.Minimized then return end
 		local cam = workspace.CurrentCamera
 		local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+		local reserve = MOBILE and 64 or 44
+		local availH = vp.Y - reserve - 10
 		local bw, bh = size.X.Offset, size.Y.Offset
-		local s
+		local sc
 		if W._manual then
-			s = W.Scale
+			sc = W.Scale
 		else
-			s = math.clamp(math.min(vp.X * 0.94 / bw, vp.Y * 0.88 / bh, 1), 0.75, 1)
+			sc = math.clamp(math.min(vp.X * 0.94 / bw, availH / bh, 1), 0.75, 1)
 		end
-		W.Scale = s
-		uiScale.Scale = s
-		main.Size = UDim2.fromOffset(math.floor(math.min(bw, vp.X * 0.94 / s)), math.floor(math.min(bh, vp.Y * 0.88 / s)))
+		W.Scale = sc
+		uiScale.Scale = sc
+		local w = math.floor(math.min(bw, vp.X * 0.94 / sc))
+		local h = math.floor(math.min(bh, availH / sc))
+		main.Size = UDim2.fromOffset(w, h)
+		main.Position = UDim2.new(0.5, 0, 0, reserve + math.max(0, (availH - h * sc) / 2))
 		Relayout()
 	end
 
@@ -1661,7 +1720,7 @@ function Library:CreateWindow(cfg)
 					BackgroundTransparency = 1,
 					Position = UDim2.fromOffset(hasI and 26 or 0, 0),
 					Size = UDim2.new(1, -(hasI and 26 or 0), 1, 0),
-					Font = Enum.Font.GothamBold, TextSize = MOBILE and 16 or 15,
+					Font = Enum.Font.GothamBold, TextSize = 14,
 					TextXAlignment = Enum.TextXAlignment.Left,
 					TextTruncate = Enum.TextTruncate.AtEnd,
 					TextColor3 = THEME.Text, Text = tostring(scfg.Name or ""), Parent = head,
@@ -1794,7 +1853,7 @@ function Library:CreateWindow(cfg)
 			end,
 		})
 		logo:AddButton({
-			Name = "Clear logo", ButtonText = "Clear",
+			Name = "Logo", ButtonText = "Clear",
 			Callback = function()
 				logoBox:Set("", true)
 				W:SetLogo(nil)
@@ -1815,7 +1874,7 @@ function Library:CreateWindow(cfg)
 			end,
 		})
 		bg:AddButton({
-			Name = "Clear background", ButtonText = "Clear",
+			Name = "Background", ButtonText = "Clear",
 			Callback = function()
 				bgBox:Set("", true)
 				W:SetBackground(nil)
