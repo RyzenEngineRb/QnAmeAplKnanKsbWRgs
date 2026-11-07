@@ -1140,7 +1140,7 @@ function Library:CreateWindow(cfg)
 	})
 	Corner(bgImage, UDim.new(0, 16))
 
-	local HEAD_H = MOBILE and 52 or 48
+	local HEAD_H = MOBILE and 62 or 58
 	local BTN = MOBILE and 34 or 28
 
 	local top = New("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, HEAD_H), Parent = main })
@@ -1162,17 +1162,17 @@ function Library:CreateWindow(cfg)
 		}),
 	})
 	local logoWrap = New("Frame", {
-		Size = UDim2.fromOffset(38, 38),
+		Size = UDim2.fromOffset(48, 48),
 		BackgroundColor3 = Color3.fromRGB(10, 10, 12),
 		BorderSizePixel = 0,
 		LayoutOrder = 0,
 		Parent = titleBox,
 	}, { Corner(UDim.new(1, 0)) })
-	NeonRing(logoWrap, 1.5)
+	NeonRing(logoWrap, 2)
 	local logoHolder = New("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(32, 32),
+		Size = UDim2.fromOffset(42, 42),
 		BackgroundTransparency = 1,
 		Parent = logoWrap,
 	})
@@ -1181,7 +1181,7 @@ function Library:CreateWindow(cfg)
 		AutomaticSize = Enum.AutomaticSize.X,
 		BackgroundTransparency = 1,
 		Font = Enum.Font.GothamBold,
-		TextSize = 14,
+		TextSize = 16,
 		TextColor3 = THEME.Text,
 		Text = NAME,
 		LayoutOrder = 1,
@@ -1336,7 +1336,7 @@ function Library:CreateWindow(cfg)
 	})
 
 	local function SetLogoImage()
-		BuildLogo(logoHolder, 24, W._logoImg, W.Accent, W._logoZoom)
+		BuildLogo(logoHolder, 32, W._logoImg, W.Accent, W._logoZoom)
 		if W._toggleLogo then BuildLogo(W._toggleLogo, MOBILE and 34 or 28, W._logoImg, W.Accent, W._logoZoom) end
 	end
 
@@ -1471,8 +1471,8 @@ function Library:CreateWindow(cfg)
 			W._full = main.Size
 			body.Visible = false
 			for _, e in ipairs(subExtras) do e.Visible = false end
-			top.Size = UDim2.new(1, 0, 0, 48)
-			Tween(main, { Size = UDim2.fromOffset(190, 48) }, 0.2)
+			top.Size = UDim2.new(1, 0, 0, 58)
+			Tween(main, { Size = UDim2.fromOffset(210, 58) }, 0.2)
 		else
 			top.Size = UDim2.new(1, 0, 0, HEAD_H)
 			Tween(main, { Size = W._full or size }, 0.2)
