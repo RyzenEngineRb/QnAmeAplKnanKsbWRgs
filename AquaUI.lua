@@ -295,18 +295,25 @@ local function GetParent()
 	return LocalPlayer:WaitForChild("PlayerGui")
 end
 
-local function BuildLogo(holder, size, image, color)
+local function BuildLogo(holder, size, image, color, zoom)
 	for _, c in ipairs(holder:GetChildren()) do
 		c:Destroy()
 	end
 	if image then
-		New("ImageLabel", {
+		local cg = New("CanvasGroup", {
 			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Parent = holder,
+		}, { Corner(UDim.new(1, 0)) })
+		New("ImageLabel", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromScale(zoom or 1.5, zoom or 1.5),
 			BackgroundTransparency = 1,
 			Image = image,
 			ScaleType = Enum.ScaleType.Crop,
-			Parent = holder,
-		}, { Corner(UDim.new(1, 0)) })
+			Parent = cg,
+		})
 		return
 	end
 	local sq = New("Frame", {
@@ -1025,6 +1032,7 @@ function Library:CreateWindow(cfg)
 		end)
 	end
 	local S = W._cfg.settings
+	W._logoZoom = S.logoZoom or cfg.LogoZoom or 1.5
 
 	function W:_save()
 		if not HAS_FS or cfg.SaveConfig == false or W._saving then return end
@@ -1132,7 +1140,7 @@ function Library:CreateWindow(cfg)
 	})
 	Corner(bgImage, UDim.new(0, 16))
 
-	local HEAD_H = MOBILE and 48 or 44
+	local HEAD_H = MOBILE and 52 or 48
 	local BTN = MOBILE and 34 or 28
 
 	local top = New("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, HEAD_H), Parent = main })
@@ -1154,7 +1162,7 @@ function Library:CreateWindow(cfg)
 		}),
 	})
 	local logoWrap = New("Frame", {
-		Size = UDim2.fromOffset(30, 30),
+		Size = UDim2.fromOffset(38, 38),
 		BackgroundColor3 = Color3.fromRGB(10, 10, 12),
 		BorderSizePixel = 0,
 		LayoutOrder = 0,
@@ -1164,7 +1172,7 @@ function Library:CreateWindow(cfg)
 	local logoHolder = New("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(22, 22),
+		Size = UDim2.fromOffset(32, 32),
 		BackgroundTransparency = 1,
 		Parent = logoWrap,
 	})
@@ -1328,8 +1336,13 @@ function Library:CreateWindow(cfg)
 	})
 
 	local function SetLogoImage()
-		BuildLogo(logoHolder, 20, W._logoImg, W.Accent)
-		if W._toggleLogo then BuildLogo(W._toggleLogo, MOBILE and 30 or 26, W._logoImg, W.Accent) end
+		BuildLogo(logoHolder, 24, W._logoImg, W.Accent, W._logoZoom)
+		if W._toggleLogo then BuildLogo(W._toggleLogo, MOBILE and 34 or 28, W._logoImg, W.Accent, W._logoZoom) end
+	end
+
+	function W:SetLogoZoom(z)
+		W._logoZoom = math.clamp(z, 1, 3)
+		SetLogoImage()
 	end
 	W:BindAccent(function()
 		if not W._logoImg then SetLogoImage() end
@@ -1458,8 +1471,8 @@ function Library:CreateWindow(cfg)
 			W._full = main.Size
 			body.Visible = false
 			for _, e in ipairs(subExtras) do e.Visible = false end
-			top.Size = UDim2.new(1, 0, 0, 38)
-			Tween(main, { Size = UDim2.fromOffset(170, 38) }, 0.2)
+			top.Size = UDim2.new(1, 0, 0, 48)
+			Tween(main, { Size = UDim2.fromOffset(190, 48) }, 0.2)
 		else
 			top.Size = UDim2.new(1, 0, 0, HEAD_H)
 			Tween(main, { Size = W._full or size }, 0.2)
@@ -1479,7 +1492,7 @@ function Library:CreateWindow(cfg)
 
 	local toggle
 	if cfg.ToggleButton ~= false then
-		local tsize = MOBILE and 52 or 44
+		local tsize = MOBILE and 60 or 50
 		toggle = New("TextButton", {
 			Name = "Toggle",
 			AnchorPoint = Vector2.new(1, 0.5),
@@ -1495,7 +1508,7 @@ function Library:CreateWindow(cfg)
 		W._toggleLogo = New("Frame", {
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.fromOffset(MOBILE and 34 or 30, MOBILE and 34 or 30),
+			Size = UDim2.fromOffset(MOBILE and 54 or 44, MOBILE and 54 or 44),
 			BackgroundTransparency = 1,
 			Parent = toggle,
 		})
@@ -1949,6 +1962,13 @@ function Library:CreateWindow(cfg)
 			Callback = function()
 				logoBox:Set("", true)
 				W:SetLogo(nil)
+			end,
+		})
+		logo:AddSlider({
+			Name = "Zoom", Min = 100, Max = 300, Default = math.floor(W._logoZoom * 100 + 0.5), Suffix = "%",
+			Callback = function(v)
+				W:SetLogoZoom(v / 100)
+				Persist("logoZoom", v / 100)
 			end,
 		})
 		local bg = branding:Section("Background", "Right")
