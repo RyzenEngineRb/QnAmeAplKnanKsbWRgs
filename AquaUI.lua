@@ -216,14 +216,17 @@ local function Chevron(parent, color)
 	return c
 end
 
-local function DrawGear(parent, size, color)
+local gearsSpin = {}
+
+local function DrawGear(parent, size, color, pos, speed)
 	local holder = New("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
+		Position = pos or UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.fromOffset(size, size),
 		BackgroundTransparency = 1,
 		Parent = parent,
 	})
+	if speed then table.insert(gearsSpin, { h = holder, speed = speed }) end
 	local parts = {}
 	local r = size * 0.4
 	for i = 0, 7 do
@@ -405,17 +408,6 @@ local NEON_ALPHA = NumberSequence.new({
 })
 
 local function NeonRing(parent, thickness)
-	thickness = thickness or 2
-	local glow = New("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromScale(1, 1),
-		BackgroundTransparency = 1,
-		ZIndex = 3,
-		Parent = parent,
-	}, { Corner(UDim.new(1, 0)) })
-	local gs = Stroke(glow, Color3.new(1, 1, 1), 0.7, thickness + 4)
-	local gg = New("UIGradient", { Color = NEON_COLORS, Transparency = NEON_ALPHA, Parent = gs })
 	local ring = New("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
@@ -424,11 +416,17 @@ local function NeonRing(parent, thickness)
 		ZIndex = 4,
 		Parent = parent,
 	}, { Corner(UDim.new(1, 0)) })
-	local rs = Stroke(ring, Color3.new(1, 1, 1), 0, thickness)
+	local rs = Stroke(ring, Color3.new(1, 1, 1), 0, thickness or 2)
 	local rg = New("UIGradient", { Color = NEON_COLORS, Transparency = NEON_ALPHA, Parent = rs })
-	table.insert(neons, { g = rg, glow = gs, speed = 70 })
-	table.insert(neons, { g = gg, speed = -45 })
+	table.insert(neons, { g = rg, speed = 70 })
 	return ring
+end
+
+local function NeonStroke(parent, thickness, transparency)
+	local st = Stroke(parent, Color3.new(1, 1, 1), transparency or 0.2, thickness or 1)
+	local g = New("UIGradient", { Color = NEON_COLORS, Transparency = NEON_ALPHA, Parent = st })
+	table.insert(neons, { g = g, speed = 40 })
+	return st
 end
 
 local ticks = {}
@@ -445,7 +443,7 @@ local function CreateWatermark(gui, W, yOffset, cfg)
 		Parent = gui,
 	})
 	Corner(bar, UDim.new(1, 0))
-	Stroke(bar, Color3.fromRGB(58, 58, 66), 0)
+	NeonStroke(bar, 1, 0.15)
 
 	local content = New("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -560,7 +558,7 @@ local function Elements(container, W, cardRef)
 			Parent = container,
 		})
 		Corner(r, UDim.new(0, 10))
-		Stroke(r, THEME.Line, 0)
+		Stroke(r, Color3.new(1, 1, 1), 0.86, 1)
 		return r
 	end
 
@@ -601,7 +599,7 @@ local function Elements(container, W, cardRef)
 			BorderSizePixel = 0,
 			ZIndex = 3,
 			Parent = parent,
-		}, { Corner(UDim.new(0, 8)), Stroke(THEME.Line, 0) })
+		}, { Corner(UDim.new(0, 8)), Stroke(Color3.new(1, 1, 1), 0.82, 1) })
 	end
 
 	local function Register(row, text)
@@ -915,6 +913,8 @@ local function Elements(container, W, cardRef)
 		local fieldW = MOBILE and 112 or 124
 		Lbl(r, cfg.Name, fieldW + 24)
 		local f = Field(r, fieldW)
+		f.AnchorPoint = Vector2.new(1, 0.5)
+		f.Position = UDim2.new(1, -10, 0, ROW_H / 2)
 		local cur = New("TextLabel", {
 			BackgroundTransparency = 1,
 			Position = UDim2.fromOffset(10, 0),
@@ -997,6 +997,7 @@ function Library:CreateWindow(cfg)
 	for k in pairs(Library.Listeners) do Library.Listeners[k] = nil end
 	table.clear(ticks)
 	table.clear(neons)
+	table.clear(gearsSpin)
 
 	local NAME = tostring(cfg.Name or cfg.Title or "Aqua")
 	local FOLDER = cfg.ConfigFolder or "AquaUI"
@@ -1090,6 +1091,14 @@ function Library:CreateWindow(cfg)
 
 	local conn = RunService.RenderStepped:Connect(function(dt)
 		local t = os.clock()
+		for i = #gearsSpin, 1, -1 do
+			local g = gearsSpin[i]
+			if g.h.Parent then
+				g.h.Rotation = (t * g.speed * (W._gearMul or 1)) % 360
+			else
+				table.remove(gearsSpin, i)
+			end
+		end
 		for i = #neons, 1, -1 do
 			local n = neons[i]
 			if n.g.Parent then
@@ -1123,7 +1132,7 @@ function Library:CreateWindow(cfg)
 		Parent = gui,
 	})
 	Corner(main, UDim.new(0, 16))
-	Stroke(main, THEME.Line, 0)
+	NeonStroke(main, 1.5, 0.1)
 	local uiScale = New("UIScale", { Scale = 1, Parent = main })
 	W.Main = main
 
@@ -1307,11 +1316,37 @@ function Library:CreateWindow(cfg)
 
 	New("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, -(ROW_H + 16)), Size = UDim2.new(1, -10, 0, 1), BackgroundColor3 = THEME.Line, BorderSizePixel = 0, Parent = side })
 
+	local pulseBars = {}
+	local function PulseCluster(anchorX, posX)
+		local f = New("Frame", {
+			AnchorPoint = Vector2.new(anchorX, 1),
+			Position = UDim2.new(anchorX, posX, 1, -8),
+			Size = UDim2.fromOffset(21, ROW_H),
+			BackgroundTransparency = 1,
+			Parent = side,
+		})
+		for i = 1, 4 do
+			local b = New("Frame", {
+				AnchorPoint = Vector2.new(0, 0.5),
+				Position = UDim2.new(0, (i - 1) * 6, 0.5, 0),
+				Size = UDim2.fromOffset(3, 6),
+				BackgroundColor3 = Color3.new(1, 1, 1),
+				BackgroundTransparency = 0.25,
+				BorderSizePixel = 0,
+				Parent = f,
+			}, { Corner(UDim.new(1, 0)) })
+			table.insert(pulseBars, { bar = b, phase = i * 0.9 + anchorX * 2.3 })
+		end
+		return f
+	end
+	local pulseL = PulseCluster(0, 12)
+	local pulseR = PulseCluster(1, -12)
+
 	local gearBtn = New("TextButton", {
 		Name = "Settings",
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -8),
-		Size = UDim2.fromOffset(ROW_H + 6, ROW_H),
+		Size = UDim2.fromOffset(ROW_H + 22, ROW_H),
 		BackgroundColor3 = THEME.Select,
 		BackgroundTransparency = 1,
 		Text = "",
@@ -1319,13 +1354,27 @@ function Library:CreateWindow(cfg)
 		Parent = side,
 	})
 	Corner(gearBtn, UDim.new(0, 10))
-	local gear = DrawGear(gearBtn, MOBILE and 22 or 20, THEME.Sub)
+	DrawGear(gearBtn, MOBILE and 24 or 22, Color3.new(1, 1, 1), UDim2.fromScale(0.4, 0.58), 40)
+	DrawGear(gearBtn, MOBILE and 16 or 14, Color3.new(1, 1, 1), UDim2.fromScale(0.74, 0.3), -62)
+	local gear = { SetColor = function() end }
 	gearBtn.MouseEnter:Connect(function()
+		W._gearMul = 3
 		if W._current ~= W._settings then Tween(gearBtn, { BackgroundTransparency = 0.5 }) end
 	end)
 	gearBtn.MouseLeave:Connect(function()
+		W._gearMul = (W._current == W._settings) and 2 or 1
 		if W._current ~= W._settings then Tween(gearBtn, { BackgroundTransparency = 1 }) end
 	end)
+
+	table.insert(ticks, function()
+		local t = os.clock()
+		local maxH = ROW_H - 14
+		for _, pb in ipairs(pulseBars) do
+			local k = 0.5 + 0.5 * math.sin(t * 3.2 + pb.phase)
+			local env = 0.55 + 0.45 * math.sin(t * 1.1 + pb.phase * 0.5)
+			pb.bar.Size = UDim2.fromOffset(3, 4 + (maxH - 4) * k * env)
+		end
+	 end)
 
 	local pagesHolder = New("Frame", {
 		BackgroundTransparency = 1,
@@ -1403,6 +1452,8 @@ function Library:CreateWindow(cfg)
 		local single = contentW < 380
 		W._single = single
 		side.Size = UDim2.new(0, sideW, 1, 0)
+		pulseL.Visible = not rail
+		pulseR.Visible = not rail
 		pagesHolder.Position = UDim2.fromOffset(sideW + PAD, 0)
 		pagesHolder.Size = UDim2.new(1, -(sideW + PAD * 2), 1, 0)
 		for _, p in ipairs(W.AllPages) do
@@ -1492,7 +1543,7 @@ function Library:CreateWindow(cfg)
 
 	local toggle
 	if cfg.ToggleButton ~= false then
-		local tsize = MOBILE and 60 or 50
+		local tsize = MOBILE and 52 or 44
 		toggle = New("TextButton", {
 			Name = "Toggle",
 			AnchorPoint = Vector2.new(1, 0.5),
@@ -1504,11 +1555,11 @@ function Library:CreateWindow(cfg)
 			Parent = gui,
 		})
 		Corner(toggle, UDim.new(1, 0))
-		NeonRing(toggle, 2)
+		NeonRing(toggle, 1.5)
 		W._toggleLogo = New("Frame", {
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.fromOffset(MOBILE and 54 or 44, MOBILE and 54 or 44),
+			Size = UDim2.fromOffset(MOBILE and 46 or 38, MOBILE and 46 or 38),
 			BackgroundTransparency = 1,
 			Parent = toggle,
 		})
@@ -1609,6 +1660,7 @@ function Library:CreateWindow(cfg)
 		end
 		local isSettings = page == W._settings
 		Tween(gearBtn, { BackgroundTransparency = isSettings and 0 or 1 })
+		W._gearMul = isSettings and 2 or 1
 		gear:SetColor(isSettings and W.Accent or THEME.Sub)
 	end
 
@@ -1801,7 +1853,7 @@ function Library:CreateWindow(cfg)
 					Parent = useRight and sub.Right or sub.Left,
 				})
 				Corner(card, UDim.new(0, 14))
-				Stroke(card, THEME.Line, 0)
+				NeonStroke(card, 1, 0.45)
 				New("UIPadding", {
 					PaddingTop = UDim.new(0, PAD), PaddingBottom = UDim.new(0, PAD),
 					PaddingLeft = UDim.new(0, PAD), PaddingRight = UDim.new(0, PAD), Parent = card,
