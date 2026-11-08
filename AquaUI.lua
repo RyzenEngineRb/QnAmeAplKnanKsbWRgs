@@ -118,6 +118,39 @@ local function Tap(btn, fn)
 	end)
 end
 
+local function DragArea(area, onMove, onStart, onStop)
+	local active, scrollRef
+	area.InputBegan:Connect(function(i)
+		if IsPointer(i) and not active then
+			active = i
+			scrollRef = area:FindFirstAncestorOfClass("ScrollingFrame")
+			if scrollRef then scrollRef.ScrollingEnabled = false end
+			if onStart then onStart() end
+			onMove(i.Position)
+			i.Changed:Connect(function()
+				if i.UserInputState == Enum.UserInputState.End and active == i then
+					active = nil
+					if scrollRef then
+						scrollRef.ScrollingEnabled = true
+						scrollRef = nil
+					end
+					if onStop then onStop() end
+				end
+			end)
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(i)
+		if not active then return end
+		local ok
+		if active.UserInputType == Enum.UserInputType.Touch then
+			ok = (i == active)
+		else
+			ok = (i.UserInputType == Enum.UserInputType.MouseMovement)
+		end
+		if ok then onMove(i.Position) end
+	end)
+end
+
 local function TextOn(c)
 	local lum = 0.299 * c.R + 0.587 * c.G + 0.114 * c.B
 	return lum > 0.62 and Color3.fromRGB(18, 18, 20) or Color3.new(1, 1, 1)
@@ -525,28 +558,36 @@ end
 
 local function MakeDraggable(handle, target, clamp)
 	local state = { moved = false }
-	local dragging, startPos, startInput
+	local dragging, startPos, startInput, beginObj
 	handle.InputBegan:Connect(function(input)
-		if IsPointer(input) then
+		if IsPointer(input) and not dragging then
 			dragging, state.moved = true, false
+			beginObj = input
 			startInput, startPos = input.Position, target.Position
 			input.Changed:Connect(function()
-				if input.UserInputState == Enum.UserInputState.End then
+				if input.UserInputState == Enum.UserInputState.End and beginObj == input then
 					dragging = false
+					beginObj = nil
 				end
 			end)
 		end
 	end)
 	UserInputService.InputChanged:Connect(function(input)
-		if dragging and Moving(input) then
-			local d = input.Position - startInput
-			if d.Magnitude > 6 then
-				state.moved = true
-			end
-			if state.moved then
-				target.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
-				if clamp then ClampPos(target, 4) end
-			end
+		if not dragging or not beginObj then return end
+		local ok
+		if beginObj.UserInputType == Enum.UserInputType.Touch then
+			ok = (input == beginObj)
+		else
+			ok = (input.UserInputType == Enum.UserInputType.MouseMovement)
+		end
+		if not ok then return end
+		local d = input.Position - startInput
+		if d.Magnitude > 6 then
+			state.moved = true
+		end
+		if state.moved then
+			target.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+			if clamp then ClampPos(target, 4) end
 		end
 	end)
 	return state
@@ -969,8 +1010,10 @@ local function Elements(container, W, cardRef)
 	function E:AddToggle(cfg)
 		cfg = type(cfg) == "string" and { Name = cfg } or cfg
 		local r = Row()
+		order += 1
+		local panelOrder = order
 		local TW, TH = 46, MOBILE and 26 or 24
-		Lbl(r, cfg.Name, TW + 24, nil, nil, cfg.Icon)
+		local lblObj = Lbl(r, cfg.Name, TW + 24, nil, nil, cfg.Icon)
 		local pill = New("Frame", {
 			AnchorPoint = Vector2.new(1, 0.5),
 			Position = UDim2.new(1, -12, 0.5, 0),
@@ -988,6 +1031,30 @@ local function Elements(container, W, cardRef)
 			Parent = pill,
 		}, { Corner(UDim.new(1, 0)) })
 		local obj = { Value = false, Type = "Toggle" }
+		local panel, panelE, gearObj, panelOpen = nil, nil, nil, false
+		local function SetPanel(open, instant)
+			if not panel then return end
+			panelOpen = open
+			if gearObj then gearObj:SetColor(open and W.Accent or THEME.Sub) end
+			if open then
+				panel.Visible = true
+				if instant then
+					panel.GroupTransparency = 0
+				else
+					panel.GroupTransparency = 1
+					Tween(panel, { GroupTransparency = 0 }, 0.22)
+				end
+			else
+				if instant then
+					panel.Visible = false
+				else
+					Tween(panel, { GroupTransparency = 1 }, 0.15)
+					task.delay(0.16, function()
+						if not panelOpen then panel.Visible = false end
+					end)
+				end
+			end
+		end
 		local function render(animate)
 			local on = obj.Value
 			local p = { BackgroundColor3 = on and W.Accent or THEME.Off }
@@ -1006,10 +1073,49 @@ local function Elements(container, W, cardRef)
 		function obj:Set(v, silent)
 			obj.Value = v and true or false
 			render(true)
+			SetPanel(obj.Value, false)
 			Commit(cfg, obj, silent)
 		end
 		function obj:Get() return obj.Value end
-		W:BindAccent(function() render(false) end)
+		function obj:AddSettings()
+			if panel then return panelE end
+			panel = New("CanvasGroup", {
+				Size = UDim2.new(1, 0, 0, 0),
+				AutomaticSize = Enum.AutomaticSize.Y,
+				BackgroundTransparency = 1,
+				GroupTransparency = 1,
+				Visible = false,
+				LayoutOrder = panelOrder,
+				Parent = container,
+			}, {
+				New("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
+				New("UIPadding", {
+					PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 2),
+					PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 2),
+				}),
+			})
+			panelE = Elements(panel, W, cardRef)
+			local gx = UDim2.new(1, -(12 + TW + 24), 0.5, 0)
+			gearObj = DrawGear(r, 15, THEME.Sub, gx)
+			local gbtn = New("TextButton", {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = gx,
+				Size = UDim2.fromOffset(32, 32),
+				BackgroundTransparency = 1,
+				Text = "",
+				AutoButtonColor = false,
+				ZIndex = 4,
+				Parent = r,
+			})
+			Tap(gbtn, function() SetPanel(not panelOpen, false) end)
+			lblObj.Size = UDim2.new(lblObj.Size.X.Scale, lblObj.Size.X.Offset - 32, lblObj.Size.Y.Scale, lblObj.Size.Y.Offset)
+			SetPanel(obj.Value, true)
+			return panelE
+		end
+		W:BindAccent(function()
+			render(false)
+			if gearObj then gearObj:SetColor(panelOpen and W.Accent or THEME.Sub) end
+		end)
 		Tap(Hit(r), function() obj:Set(not obj.Value) end)
 		local saved = cfg.Flag and W._cfg.flags[cfg.Flag]
 		obj.Value = (saved ~= nil) and saved or (cfg.Default and true or false)
@@ -1107,39 +1213,151 @@ local function Elements(container, W, cardRef)
 			Commit(cfg, obj, silent)
 		end
 		function obj:Get() return obj.Value end
-		local sliding, scrollRef = false, nil
 		local function update(x)
 			local rel = math.clamp((x - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
 			obj:Set(min + (max - min) * rel)
 		end
-		local function stop()
-			sliding = false
-			Tween(knob, { Size = UDim2.fromOffset(KR * 2, KR * 2) }, 0.12)
-			if scrollRef then
-				scrollRef.ScrollingEnabled = true
-				scrollRef = nil
-			end
-		end
-		hit.InputBegan:Connect(function(i)
-			if IsPointer(i) then
-				sliding = true
-				Tween(knob, { Size = UDim2.fromOffset(KR * 2 + 6, KR * 2 + 6) }, 0.12)
-				scrollRef = hit:FindFirstAncestorOfClass("ScrollingFrame")
-				if scrollRef then scrollRef.ScrollingEnabled = false end
-				update(i.Position.X)
-			end
-		end)
-		UserInputService.InputEnded:Connect(function(i)
-			if IsPointer(i) and sliding then stop() end
-		end)
-		UserInputService.InputChanged:Connect(function(i)
-			if sliding and Moving(i) then update(i.Position.X) end
-		end)
+		DragArea(hit, function(pos) update(pos.X) end,
+			function() Tween(knob, { Size = UDim2.fromOffset(KR * 2 + 6, KR * 2 + 6) }, 0.12) end,
+			function() Tween(knob, { Size = UDim2.fromOffset(KR * 2, KR * 2) }, 0.12) end)
 		local saved = cfg.Flag and W._cfg.flags[cfg.Flag]
 		obj.Value = snap((saved ~= nil) and saved or cfg.Default or min)
 		render()
 		RegisterFlag(cfg, obj)
 		if saved ~= nil then Commit(cfg, obj, false) end
+		Register(r, cfg.Name)
+		return obj
+	end
+
+	function E:AddColorPicker(cfg)
+		local r = Row()
+		r.ClipsDescendants = true
+		local SW_W = 52
+		Lbl(r, cfg.Name, SW_W + 26, nil, nil, cfg.Icon)
+		local swatch = New("Frame", {
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -10, 0, ROW_H / 2),
+			Size = UDim2.fromOffset(SW_W, MOBILE and 28 or 24),
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			BorderSizePixel = 0,
+			ZIndex = 3,
+			Parent = r,
+		}, { Corner(UDim.new(0, 8)), Stroke(Color3.new(1, 1, 1), 0.55, 1) })
+		local PH = MOBILE and 100 or 90
+		local body = New("Frame", {
+			Position = UDim2.fromOffset(PAD, ROW_H),
+			Size = UDim2.new(1, -PAD * 2, 0, PH + 34),
+			BackgroundTransparency = 1,
+			Parent = r,
+		})
+		local sv = New("TextButton", {
+			Size = UDim2.new(1, 0, 0, PH),
+			BackgroundColor3 = Color3.new(1, 0, 0),
+			Text = "",
+			AutoButtonColor = false,
+			BorderSizePixel = 0,
+			Parent = body,
+		}, { Corner(UDim.new(0, 8)) })
+		New("Frame", {
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			BorderSizePixel = 0,
+			Parent = sv,
+		}, { Corner(UDim.new(0, 8)), New("UIGradient", { Transparency = NumberSequence.new(0, 1) }) })
+		New("Frame", {
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.new(0, 0, 0),
+			BorderSizePixel = 0,
+			Parent = sv,
+		}, { Corner(UDim.new(0, 8)), New("UIGradient", { Rotation = 90, Transparency = NumberSequence.new(1, 0) }) })
+		local svMark = New("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Size = UDim2.fromOffset(14, 14),
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			BorderSizePixel = 0,
+			ZIndex = 4,
+			Parent = sv,
+		}, { Corner(UDim.new(1, 0)), Stroke(Color3.new(0, 0, 0), 0.3, 2) })
+		local hue = New("TextButton", {
+			Position = UDim2.fromOffset(0, PH + 12),
+			Size = UDim2.new(1, 0, 0, 16),
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			Text = "",
+			AutoButtonColor = false,
+			BorderSizePixel = 0,
+			Parent = body,
+		}, {
+			Corner(UDim.new(1, 0)),
+			New("UIGradient", {
+				Color = ColorSequence.new({
+					ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
+					ColorSequenceKeypoint.new(1 / 6, Color3.fromRGB(255, 255, 0)),
+					ColorSequenceKeypoint.new(2 / 6, Color3.fromRGB(0, 255, 0)),
+					ColorSequenceKeypoint.new(3 / 6, Color3.fromRGB(0, 255, 255)),
+					ColorSequenceKeypoint.new(4 / 6, Color3.fromRGB(0, 0, 255)),
+					ColorSequenceKeypoint.new(5 / 6, Color3.fromRGB(255, 0, 255)),
+					ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0)),
+				}),
+			}),
+		})
+		local hueMark = New("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0, 0.5),
+			Size = UDim2.fromOffset(18, 18),
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			BorderSizePixel = 0,
+			ZIndex = 4,
+			Parent = hue,
+		}, { Corner(UDim.new(1, 0)), Stroke(Color3.new(0, 0, 0), 0.3, 2) })
+		local obj = { Value = Color3.new(1, 1, 1), Type = "ColorPicker" }
+		local h, sat, val = 0, 0, 1
+		local function render()
+			local c = Color3.fromHSV(h, sat, val)
+			obj.Value = c
+			swatch.BackgroundColor3 = c
+			sv.BackgroundColor3 = Color3.fromHSV(h, 1, 1)
+			svMark.Position = UDim2.fromScale(sat, 1 - val)
+			hueMark.Position = UDim2.fromScale(h, 0.5)
+		end
+		function obj:Set(c, silent)
+			if typeof(c) ~= "Color3" then return end
+			h, sat, val = c:ToHSV()
+			render()
+			Commit(cfg, obj, silent)
+		end
+		function obj:Get() return obj.Value end
+		DragArea(sv, function(pos)
+			sat = math.clamp((pos.X - sv.AbsolutePosition.X) / math.max(sv.AbsoluteSize.X, 1), 0, 1)
+			val = 1 - math.clamp((pos.Y - sv.AbsolutePosition.Y) / math.max(sv.AbsoluteSize.Y, 1), 0, 1)
+			render()
+			Commit(cfg, obj, false)
+		end)
+		DragArea(hue, function(pos)
+			h = math.clamp((pos.X - hue.AbsolutePosition.X) / math.max(hue.AbsoluteSize.X, 1), 0, 0.999)
+			render()
+			Commit(cfg, obj, false)
+		end)
+		local open = false
+		local head = New("TextButton", {
+			BackgroundTransparency = 1,
+			Size = UDim2.new(1, 0, 0, ROW_H),
+			Text = "",
+			AutoButtonColor = false,
+			ZIndex = 2,
+			Parent = r,
+		})
+		Tap(head, function()
+			open = not open
+			Tween(r, { Size = UDim2.new(1, 0, 0, open and (ROW_H + PH + 42) or ROW_H) })
+		end)
+		local saved = cfg.Flag and W._cfg.flags[cfg.Flag]
+		local start = cfg.Default or Color3.new(1, 1, 1)
+		local hasSaved = type(saved) == "table" and saved.__c3
+		if hasSaved then start = Color3.new(saved.r, saved.g, saved.b) end
+		h, sat, val = start:ToHSV()
+		render()
+		RegisterFlag(cfg, obj)
+		if hasSaved then Commit(cfg, obj, false) end
 		Register(r, cfg.Name)
 		return obj
 	end
@@ -1332,6 +1550,7 @@ function Library:CreateWindow(cfg)
 	end
 
 	function W:_setFlag(flag, value)
+		if typeof(value) == "Color3" then value = { __c3 = true, r = value.R, g = value.G, b = value.B } end
 		W._cfg.flags[flag] = value
 		W:_save()
 	end
@@ -1356,6 +1575,7 @@ function Library:CreateWindow(cfg)
 
 	local accentSetting = cfg.Accent
 	if S.accent and ACCENTS[S.accent] then accentSetting = S.accent end
+	if type(S.accentRGB) == "table" then accentSetting = Color3.new(S.accentRGB.r, S.accentRGB.g, S.accentRGB.b) end
 	if type(accentSetting) == "string" and ACCENTS[accentSetting] then
 		W.Accent = ACCENTS[accentSetting]
 	elseif typeof(accentSetting) == "Color3" then
@@ -1927,8 +2147,11 @@ function Library:CreateWindow(cfg)
 
 	function W:Fit()
 		if W.Minimized then return end
-		local cam = workspace.CurrentCamera
-		local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+		local vp = gui.AbsoluteSize
+		if vp.X < 50 or vp.Y < 50 then
+			local cam = workspace.CurrentCamera
+			vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+		end
 		local reserve = MOBILE and 64 or 44
 		local availH = vp.Y - reserve - 10
 		local bw, bh = size.X.Offset, size.Y.Offset
@@ -2447,8 +2670,16 @@ function Library:CreateWindow(cfg)
 			Name = "Accent", Options = ACCENT_NAMES,
 			Default = (S.accent and ACCENTS[S.accent]) and S.accent or "Blue",
 			Callback = function(v)
+				S.accentRGB = nil
 				W:SetAccent(v)
 				Persist("accent", v)
+			end,
+		})
+		display:AddColorPicker({
+			Name = "Custom Accent", Default = W.Accent,
+			Callback = function(c)
+				W:SetAccent(c)
+				Persist("accentRGB", { r = c.R, g = c.G, b = c.B })
 			end,
 		})
 		display:AddDropdown({
@@ -2507,6 +2738,12 @@ function Library:CreateWindow(cfg)
 	if bgSrc then task.spawn(function() W:SetBackground(bgSrc) end) end
 
 	W:Fit()
+	table.insert(W.Conns, gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		W:Fit()
+	end))
+	task.delay(0.3, function()
+		if gui.Parent then W:Fit() end
+	end)
 	local cam = workspace.CurrentCamera
 	if cam then
 		table.insert(W.Conns, cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
