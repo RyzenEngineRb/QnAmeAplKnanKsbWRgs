@@ -1458,6 +1458,99 @@ function Library:CreateWindow(cfg)
 	})
 	Corner(bgImage, UDim.new(0, 16))
 
+	local fxLayer = New("Frame", {
+		Name = "FX",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		ZIndex = 0,
+		ClipsDescendants = true,
+		Parent = main,
+	})
+	local starsF = New("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = fxLayer })
+	local rainF = New("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false, Parent = fxLayer })
+	local rng = Random.new(7)
+	local stars, drops = {}, {}
+	for i = 1, 48 do
+		local big = i <= 9
+		local sz = big and 3 or rng:NextInteger(1, 2)
+		local f = New("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Size = UDim2.fromOffset(sz, sz),
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			BorderSizePixel = 0,
+			Parent = starsF,
+		}, { Corner(UDim.new(1, 0)) })
+		local parts = { f }
+		if big then
+			for _, d in ipairs({ { 11, 1 }, { 1, 11 } }) do
+				table.insert(parts, New("Frame", {
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					Position = UDim2.fromScale(0.5, 0.5),
+					Size = UDim2.fromOffset(d[1], d[2]),
+					BackgroundColor3 = Color3.new(1, 1, 1),
+					BorderSizePixel = 0,
+					Parent = f,
+				}))
+			end
+		end
+		table.insert(stars, {
+			parts = parts, f = f,
+			x = rng:NextNumber(0.02, 0.98), y = rng:NextNumber(0, 1),
+			ph = rng:NextNumber(0, 6.28), sp = rng:NextNumber(0.8, 2.8), dr = rng:NextNumber(0.004, 0.012),
+		})
+	end
+	for i = 1, 30 do
+		local h = rng:NextInteger(18, 48)
+		local f = New("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0),
+			Size = UDim2.fromOffset(rng:NextInteger(1, 2), h),
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			BorderSizePixel = 0,
+			Parent = rainF,
+		}, {
+			New("UIGradient", {
+				Rotation = 90,
+				Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 1),
+					NumberSequenceKeypoint.new(1, 0.4),
+				}),
+			}),
+		})
+		table.insert(drops, { f = f, x = rng:NextNumber(0.02, 0.98), y = rng:NextNumber(0, 1), sp = rng:NextNumber(0.22, 0.65) })
+	end
+	W:BindAccent(function(c)
+		for _, d in ipairs(drops) do d.f.BackgroundColor3 = c:Lerp(Color3.new(1, 1, 1), 0.55) end
+	end)
+
+	W._fx = S.fx or cfg.Effect or "Stars"
+	function W:SetEffect(name)
+		W._fx = name
+		starsF.Visible = name == "Stars"
+		rainF.Visible = name == "Waterfall"
+	end
+	W:SetEffect(W._fx)
+
+	local fxAcc = 0
+	table.insert(ticks, function(dt)
+		if W._fx == "Off" or not main.Visible then return end
+		fxAcc += dt
+		if fxAcc < 0.033 then return end
+		fxAcc = 0
+		local t = os.clock()
+		if W._fx == "Stars" then
+			for _, st in ipairs(stars) do
+				local k = 0.5 + 0.5 * math.sin(t * st.sp + st.ph)
+				local tr = 0.2 + 0.78 * (1 - k) ^ 1.6
+				for _, part in ipairs(st.parts) do part.BackgroundTransparency = tr end
+				st.f.Position = UDim2.fromScale(st.x, (st.y - t * st.dr) % 1)
+			end
+		elseif W._fx == "Waterfall" then
+			for _, d in ipairs(drops) do
+				d.f.Position = UDim2.fromScale(d.x, ((d.y + t * d.sp) % 1.25) - 0.15)
+			end
+		end
+	end)
+
 	local HEAD_H = MOBILE and 62 or 58
 	local BTN = MOBILE and 34 or 28
 
@@ -1602,46 +1695,59 @@ function Library:CreateWindow(cfg)
 		end
 	end)
 
+	local PULSE_W, PULSE_N = 240, 120
 	local pulseBox = New("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.new(0.5, 0, 0.5, 0),
-		Size = UDim2.fromOffset(226, HEAD_H - 14),
+		Size = UDim2.fromOffset(PULSE_W, HEAD_H - 14),
 		BackgroundTransparency = 1,
 		Parent = top,
 	})
-	local PN, PW, PS = 46, 2, 5
-	local pbars = {}
-	for i = 1, PN do
-		local u = (i - 1) / (PN - 1)
-		local edge = math.abs(u - 0.5) * 2
-		pbars[i] = New("Frame", {
-			Position = UDim2.new(0, (i - 1) * PS, 0.5, -1),
-			Size = UDim2.fromOffset(PW, 2),
+	local psegs = {}
+	for i = 1, PULSE_N - 1 do
+		local mid = (i - 0.5) / (PULSE_N - 1)
+		local edge = math.abs(mid - 0.5) * 2
+		local seg = New("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Size = UDim2.fromOffset(3, 2),
 			BackgroundColor3 = Color3.new(1, 1, 1),
-			BackgroundTransparency = 0.1 + 0.85 * edge ^ 2.2,
+			BackgroundTransparency = 0.04 + 0.92 * edge ^ 2.4,
 			BorderSizePixel = 0,
 			Parent = pulseBox,
 		}, { Corner(UDim.new(1, 0)) })
+		Stroke(seg, Color3.new(1, 1, 1), math.min(1, 0.72 + 0.28 * edge ^ 2), 3)
+		psegs[i] = seg
 	end
-	local function bump(u, c, w, h)
-		return h * math.max(0, 1 - math.abs(u - c) / w)
+	local function gauss(u, c, w, h)
+		local d = (u - c) / w
+		return h * math.exp(-d * d)
 	end
-	table.insert(ticks, function()
+	local function beat(u, c)
+		return gauss(u, c - 0.07, 0.02, 0.14) + gauss(u, c - 0.02, 0.008, -0.14) + gauss(u, c, 0.011, 1)
+			+ gauss(u, c + 0.022, 0.011, -0.52) + gauss(u, c + 0.1, 0.03, 0.22)
+	end
+	local pAcc = 0
+	table.insert(ticks, function(dt)
 		if not pulseBox.Visible then return end
+		pAcc += dt
+		if pAcc < 0.028 then return end
+		pAcc = 0
 		local t = os.clock()
-		local H = (HEAD_H - 14) / 2 - 2
-		for i, b in ipairs(pbars) do
-			local ph = ((i - 1) / PN * 1.6 - t * 0.55) % 1
-			local v = bump(ph, 0.18, 0.028, 1) + bump(ph, 0.226, 0.028, -0.62)
-				+ bump(ph, 0.40, 0.06, 0.16)
-				+ bump(ph, 0.66, 0.028, 0.85) + bump(ph, 0.706, 0.028, -0.5)
-			if v >= 0 then
-				b.Position = UDim2.new(0, (i - 1) * PS, 0.5, -(v * H) - 1)
-				b.Size = UDim2.fromOffset(PW, v * H + 2)
-			else
-				b.Position = UDim2.new(0, (i - 1) * PS, 0.5, -1)
-				b.Size = UDim2.fromOffset(PW, -v * H + 2)
-			end
+		local H = (HEAD_H - 14) / 2 - 3
+		local cy = (HEAD_H - 14) / 2
+		local dx = PULSE_W / (PULSE_N - 1)
+		local ys = {}
+		for i = 1, PULSE_N do
+			local ph = ((i - 1) / (PULSE_N - 1) - t * 0.3) % 1
+			ys[i] = -(beat(ph, 0.22) + beat(ph, 0.72)) * H
+		end
+		for i = 1, PULSE_N - 1 do
+			local x1, y1, x2, y2 = (i - 1) * dx, ys[i], i * dx, ys[i + 1]
+			local ddx, ddy = x2 - x1, y2 - y1
+			local seg = psegs[i]
+			seg.Position = UDim2.fromOffset((x1 + x2) / 2, cy + (y1 + y2) / 2)
+			seg.Size = UDim2.fromOffset(math.sqrt(ddx * ddx + ddy * ddy) + 1.2, 2)
+			seg.Rotation = math.deg(math.atan2(ddy, ddx))
 		end
 	end)
 
@@ -2208,6 +2314,7 @@ function Library:CreateWindow(cfg)
 					Size = UDim2.new(1, 0, 0, 0),
 					AutomaticSize = Enum.AutomaticSize.Y,
 					BackgroundColor3 = THEME.Panel,
+					BackgroundTransparency = 0.1,
 					Parent = useRight and sub.Right or sub.Left,
 				})
 				Corner(card, UDim.new(0, 14))
@@ -2342,6 +2449,13 @@ function Library:CreateWindow(cfg)
 			Callback = function(v)
 				W:SetAccent(v)
 				Persist("accent", v)
+			end,
+		})
+		display:AddDropdown({
+			Name = "Background FX", Options = { "Stars", "Waterfall", "Off" }, Default = W._fx,
+			Callback = function(v)
+				W:SetEffect(v)
+				Persist("fx", v)
 			end,
 		})
 		if cfg.Background then
